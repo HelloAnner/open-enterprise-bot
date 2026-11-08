@@ -1,0 +1,8 @@
+# Development single-node storage ONLY. Retain avoids accidental PV deletion, not node-loss data loss.
+# Replace storageClassName in each StatefulSet with a replicated CSI class for production.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata: {name: eob-local-retain}
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer

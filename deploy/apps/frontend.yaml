@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Service
+metadata: {name: frontend, namespace: eob}
+spec: {selector: {app: frontend}, ports: [{name: http, port: 8080, targetPort: 8080}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: frontend, namespace: eob}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: frontend}}
+  template:
+    metadata: {labels: {app: frontend}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 101, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: frontend
+          image: eob/frontend:dev
+          ports: [{containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 50m, memory: 32Mi}, limits: {cpu: 500m, memory: 128Mi}}
+          readinessProbe: {httpGet: {path: /, port: 8080}, periodSeconds: 5}
+---
+# Existing K3s Traefik routes the unchanged page and APIs on the same origin. No internal paths are exposed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: eob, namespace: eob}
+spec:
+  ingressClassName: traefik
+  tls: [{hosts: [bot.local], secretName: eob-tls}] # Provision your certificate separately.
+  rules:
+    - host: bot.local
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend: {service: {name: api-gateway, port: {number: 8080}}}
+          - path: /desktop
+            pathType: Prefix
+            backend: {service: {name: desktop-gateway, port: {number: 8080}}}
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: frontend, port: {number: 8080}}}

@@ -15,6 +15,8 @@ import { useBotsQuery, useDeleteBotMutation, usePatchBotMutation } from "@/api/h
 import { useUiStore } from "@/stores/uiStore";
 import { BotEditorDialog } from "@/features/bot/BotEditorDialog";
 import { MoveBotDialog } from "@/features/bot/MoveBotDialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { useSession, logout } from "@/api/session";
 
 function BotListItem({ bot, onMove, onRename, onDelete, onSelected }: { bot: Bot; onMove: () => void; onRename: () => void; onDelete: () => void; onSelected: () => void }) {
   const activeBotId = useUiStore((state) => state.activeBotId);
@@ -31,8 +33,8 @@ function BotListItem({ bot, onMove, onRename, onDelete, onSelected }: { bot: Bot
     <ContextItem onSelect={onMove}><Folder /><span>移至</span><ChevronRight className="menu-trailing" /></ContextItem>
     <ContextItem onSelect={() => patchBot.mutate({ id: bot.id, patch: { unread: true } })}><Bell />标为未读</ContextItem><ContextSeparator />
     <ContextItem onSelect={onRename}><Pencil />重命名 Bot</ContextItem><ContextSeparator />
-    <ContextItem onSelect={() => { void copyText(`conversation_${bot.id}`).then(() => toast.success("对话 ID 已复制")).catch(() => toast.error("复制失败")); }}><Copy />复制对话 ID</ContextItem><ContextSeparator />
-    <ContextItem onSelect={() => patchBot.mutate({ id: bot.id, patch: { hidden: true } }, { onSuccess: () => { if (activeBotId === bot.id) selectBot("moss"); toast.success("已从侧边栏隐藏"); } })}><EyeOff />从侧边栏隐藏</ContextItem>
+    <ContextItem onSelect={() => { void copyText(bot.id).then(() => toast.success("Bot ID 已复制")).catch(() => toast.error("复制失败")); }}><Copy />复制 Bot ID</ContextItem><ContextSeparator />
+    <ContextItem onSelect={() => patchBot.mutate({ id: bot.id, patch: { hidden: true } }, { onSuccess: () => { if (activeBotId === bot.id) selectBot(""); toast.success("已从侧边栏隐藏"); } })}><EyeOff />从侧边栏隐藏</ContextItem>
     <ContextItem className="danger" onSelect={onDelete}><Trash2 />删除</ContextItem>
   </ContextContent></ContextMenu>;
 }
@@ -41,10 +43,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen: boolean; on
   const botsQuery = useBotsQuery();
   const deleteBot = useDeleteBotMutation();
   const bots = botsQuery.data ?? [];
-  const mossBot = bots.find((bot) => bot.id === "moss");
+  const mossBot = bots.find((bot) => !bot.hidden);
+  const session = useSession();
+  const patch = usePatchBotMutation();
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const query = useUiStore((state) => state.searchQuery);
   const collapsed = useUiStore((state) => state.collapsedGroups);
-  const mossProcessing = useUiStore((state) => state.typingBotIds.includes("moss"));
+  const mossProcessing = useUiStore((state) => state.typingBotIds.includes(mossBot?.id ?? ""));
   const { selectBot, setSearchQuery, toggleGroup } = useUiStore();
   const [searchOpen, setSearchOpen] = useState(false);
   const [brandHovered, setBrandHovered] = useState(false);
@@ -61,16 +67,18 @@ export function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen: boolean; on
     <aside className={cn("sidebar", mobileOpen && "open", searchOpen && "search-open")} aria-label="Bot 对话列表">
       <div className="sidebar-actions"><Tooltip label="搜索对话"><Button variant="ghost" size="icon" className="round-button" aria-label="搜索对话" onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearchQuery(""); }}><Search /></Button></Tooltip><Tooltip label="创建新 Bot"><Button variant="ghost" size="icon" className="round-button" aria-label="创建新 Bot" onClick={() => { setEditingBot(undefined); setEditorOpen(true); }}><Plus /></Button></Tooltip></div>
       <AnimatePresence>{searchOpen && <motion.div className="search-panel" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}><Search size={16} /><Input type="search" value={query} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索 Bot" aria-label="搜索 Bot" autoFocus /></motion.div>}</AnimatePresence>
-      <BotHoverCard bot={mossBot}><button className="brand" aria-label="打开 Moss" onClick={() => { selectBot("moss"); onMobileClose(); }} onPointerEnter={() => setBrandHovered(true)} onPointerLeave={() => setBrandHovered(false)} onFocus={() => setBrandHovered(true)} onBlur={() => setBrandHovered(false)} disabled={botsQuery.isLoading}><span className="brand-avatar"><BotAvatar shape="circle" color="#050505" active={brandHovered} processing={mossProcessing} /></span><span className="brand-name">Moss</span></button></BotHoverCard>
+      <BotHoverCard bot={mossBot}><button className="brand" aria-label="打开工作空间" onClick={() => { if(mossBot) selectBot(mossBot.id); else {setEditingBot(undefined);setEditorOpen(true);} onMobileClose(); }} onPointerEnter={() => setBrandHovered(true)} onPointerLeave={() => setBrandHovered(false)} onFocus={() => setBrandHovered(true)} onBlur={() => setBrandHovered(false)} disabled={botsQuery.isLoading}><span className="brand-avatar"><BotAvatar shape="circle" color="#050505" active={brandHovered} processing={mossProcessing} /></span><span className="brand-name">Open Bot</span></button></BotHoverCard>
       <nav className="bot-list" aria-busy={botsQuery.isLoading}>{botsQuery.isLoading ? <div className="bot-list-loading">{[1, 2, 3, 4].map((item) => <div className="bot-skeleton" key={item} />)}</div> : botsQuery.isError ? <div className="empty-search"><p>{botsQuery.error.message}</p><Button variant="secondary" size="sm" onClick={() => void botsQuery.refetch()}>重新加载</Button></div> : !visibleBots.length ? <div className="empty-search">没有找到相关 Bot</div> : query ? sorted(visibleBots).map((bot) => <BotListItem key={bot.id} {...itemProps(bot)} />) : groups.map((group) => <section key={group}>
         <button className="group-title" onClick={() => toggleGroup(group)} aria-expanded={!collapsed.includes(group)}><span>{group}</span><ChevronDown className={cn("group-chevron", collapsed.includes(group) && "collapsed")} /></button>
         {!collapsed.includes(group) && <div>{sorted(visibleBots.filter((bot) => bot.group === group)).map((bot) => <BotListItem key={bot.id} {...itemProps(bot)} />)}</div>}
       </section>)}</nav>
-      <div className="sidebar-footer"><Button variant="ghost" className="profile" onClick={() => toast("Anner · 企业工作空间")}><span className="profile-avatar">A</span><span>Anner</span></Button><Tooltip label="应用中心"><Button variant="ghost" size="icon" aria-label="应用中心" onClick={() => toast("应用中心：全部 Bot 都已在左侧列出")}><LayoutGrid /></Button></Tooltip></div>
+      <div className="sidebar-footer"><Button variant="ghost" className="profile" onClick={() => setProfileOpen(true)}><span className="profile-avatar">{session.data?.name.slice(0,1)}</span><span>{session.data?.name}</span></Button><Tooltip label="全部 Bot"><Button variant="ghost" size="icon" aria-label="全部 Bot" onClick={() => setDirectoryOpen(true)}><LayoutGrid /></Button></Tooltip></div>
     </aside>
     {mobileOpen && <motion.button className="sidebar-scrim" aria-label="关闭对话列表" onClick={onMobileClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} />}
+    <Dialog open={profileOpen} onOpenChange={setProfileOpen}><DialogContent title="当前账户"><p>{session.data?.name} · {session.data?.username}</p><Button variant="secondary" onClick={() => void logout().catch(e=>toast.error(e.message))}>退出登录</Button></DialogContent></Dialog>
+    <Dialog open={directoryOpen} onOpenChange={setDirectoryOpen}><DialogContent title={`全部 Bot · ${bots.length}`}><div className="bot-directory">{bots.length ? bots.map(bot => <Button key={bot.id} variant="secondary" onClick={() => { if(bot.hidden) patch.mutate({id:bot.id,patch:{hidden:false}},{onSuccess:()=>selectBot(bot.id)}); else selectBot(bot.id);setDirectoryOpen(false); }}>{bot.name}{bot.hidden ? " · 已隐藏，点击恢复" : ""}</Button>) : <p>暂无 Bot，请创建你的第一个 Bot。</p>}</div></DialogContent></Dialog>
     <BotEditorDialog bot={editingBot} open={editorOpen} onOpenChange={setEditorOpen} />
     <MoveBotDialog bot={movingBot} onClose={() => setMovingBot(undefined)} />
-    <ConfirmDialog open={Boolean(deletingBot)} onOpenChange={(open) => { if (!open) setDeletingBot(undefined); }} title="删除 Bot" description={`确定删除「${deletingBot?.name ?? ""}」吗？当前原型中的对话也会一并移除，此操作无法撤销。`} confirmLabel={deleteBot.isPending ? "删除中…" : "删除"} onConfirm={() => { if (deletingBot) deleteBot.mutate(deletingBot.id, { onSuccess: () => toast.success("Bot 已删除"), onError: (error) => toast.error(error.message) }); }} />
+    <ConfirmDialog open={Boolean(deletingBot)} onOpenChange={(open) => { if (!open) setDeletingBot(undefined); }} title="删除 Bot" description={`确定删除「${deletingBot?.name ?? ""}」吗？此 Bot 和其对话将不再显示。`} confirmLabel={deleteBot.isPending ? "删除中…" : "删除"} onConfirm={() => { if (deletingBot) deleteBot.mutate(deletingBot.id, { onSuccess: () => toast.success("Bot 已删除"), onError: (error) => toast.error(error.message) }); }} />
   </>;
 }

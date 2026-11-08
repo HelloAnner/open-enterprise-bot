@@ -1,0 +1,13 @@
+.login-page { min-height: 100dvh; display: grid; place-items: center; background: var(--sidebar); padding: 24px; }
+.login-card { width: min(100%, 380px); padding: 36px; background: var(--surface); border: 1px solid var(--line); border-radius: 24px; box-shadow: 0 8px 36px var(--shadow-soft); }
+.login-card > .bot-avatar { width: 48px; height: 48px; }
+.login-card h1 { font-size: 22px; letter-spacing: -.6px; margin: 24px 0 8px; }
+.login-card > p, .login-card small { color: var(--muted); font-size: 13px; }
+.login-card form { display: grid; gap: 20px; margin: 28px 0 20px; }
+.login-card label { display: grid; gap: 8px; font-size: 13px; }
+.login-card .login-error { color: var(--danger); font-size: 13px; }
+.file-text-preview { max-height: 50vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; padding: 16px; background: var(--surface-subtle); border-radius: 12px; font: 13px/1.6 monospace; }
+.bot-directory { display: grid; gap: 10px; }
+.bot-directory > button { justify-content: flex-start; }
+.workspace-status { position: absolute; z-index: 2; top: 64px; left: 16px; right: 16px; font-size: 12px; line-height: 18px; color: var(--muted); text-align: center; pointer-events: none; }
+.conversation:has(.workspace-status) .messages { padding-top: 110px; }

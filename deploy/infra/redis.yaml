@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: Service
+metadata: {name: redis, namespace: eob}
+spec:
+  selector: {app: redis}
+  ports: [{name: redis, port: 6379, targetPort: 6379}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: redis, namespace: eob}
+spec:
+  serviceName: redis
+  replicas: 1
+  persistentVolumeClaimRetentionPolicy: {whenDeleted: Retain, whenScaled: Retain}
+  selector: {matchLabels: {app: redis}}
+  template:
+    metadata: {labels: {app: redis}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 1000, fsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          command: [/bin/sh, -ec]
+          args: ['exec redis-server /etc/redis/redis.conf --requirepass "$REDIS_PASSWORD"']
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: eob-infra-secret, key: REDIS_PASSWORD}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: '1', memory: 384Mi}}
+          ports: [{containerPort: 6379}]
+          startupProbe: {tcpSocket: {port: 6379}, periodSeconds: 2, failureThreshold: 30}
+          readinessProbe: {tcpSocket: {port: 6379}, periodSeconds: 5}
+          livenessProbe: {tcpSocket: {port: 6379}, periodSeconds: 15}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /etc/redis, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: eob-redis-config}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec: {accessModes: [ReadWriteOnce], storageClassName: eob-local-retain, resources: {requests: {storage: 1Gi}}}

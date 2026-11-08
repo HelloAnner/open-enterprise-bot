@@ -41,7 +41,7 @@ export function useDeleteBotMutation() {
     onSuccess: (_, id) => {
       queryClient.setQueryData<Bot[]>(queryKeys.bots, (bots = []) => bots.filter((bot) => bot.id !== id));
       queryClient.removeQueries({ queryKey: queryKeys.messages(id) });
-      if (useUiStore.getState().activeBotId === id) selectBot("moss");
+      if (useUiStore.getState().activeBotId === id) selectBot("");
       void queryClient.invalidateQueries({ queryKey: queryKeys.bots });
     },
   });

@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { createId } from "@/lib/utils";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "/api";
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "/api";
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -12,7 +13,8 @@ export class ApiError extends Error {
 export async function apiClient<T>(path: string, schema: z.ZodType<T>, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  if (init.method === "POST" && !headers.has("Idempotency-Key")) headers.set("Idempotency-Key", createId());
+  const response = await fetch(`${API_BASE_URL}${path}`, { credentials: "include", ...init, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { message?: string } | null;
     throw new ApiError(body?.message ?? `请求失败（${response.status}）`, response.status);

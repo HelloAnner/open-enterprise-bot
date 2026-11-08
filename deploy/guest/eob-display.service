@@ -1,0 +1,13 @@
+[Unit]
+Description=Shared software display for this user's Bot screen regions
+After=local-fs.target
+
+[Service]
+User=bot
+EnvironmentFile=/etc/eob/guest.env
+ExecStart=/bin/sh -ec 'exec Xvfb :0 -screen 0 "$((SCREEN_WIDTH * 2))x$((SCREEN_HEIGHT * ((SCREEN_LIMIT + 1) / 2)))x24" -nolisten tcp'
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,11 +1,15 @@
 import { fileURLToPath, URL } from "node:url";
-import { mockApiMiddleware } from "./src/api/mock/vitePlugin";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 
-export default defineConfig(({ mode }) => ({
-  plugins: [react(), ...(mode === "remote" ? [mockApiMiddleware()] : [])],
-  server: { host: "0.0.0.0", allowedHosts: ["mac-mini-1002"] },
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  return {
+  plugins: [react()],
+  server: { host: "0.0.0.0", allowedHosts: ["mac-mini-1002"], proxy: {
+    "/api": { target: env.API_PROXY_TARGET || "http://localhost:8080" },
+    "/desktop": { target: env.DESKTOP_PROXY_TARGET || "http://localhost:8083", ws: true },
+  } },
   preview: { host: "0.0.0.0", allowedHosts: ["mac-mini-1002"] },
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: {
@@ -20,4 +24,5 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-}));
+};
+});

@@ -7,9 +7,9 @@
 }
 @media (max-width: 720px) {
   .app { min-height: 480px; }
-  .sidebar { position: absolute; top: 0; bottom: 0; left: 0; width: 278px; transform: translateX(-100%); box-shadow: 10px 0 40px #00000012; transition: transform .25s; }
+  .sidebar { position: absolute; top: 0; bottom: 0; left: 0; width: 278px; transform: translateX(-100%); box-shadow: 10px 0 40px var(--shadow); transition: transform .25s; }
   .sidebar.open { transform: translateX(0); }
-  .sidebar-scrim { position: fixed; z-index: 15; inset: 0; display: block; background: #00000026; backdrop-filter: blur(1px); }
+  .sidebar-scrim { position: fixed; z-index: 15; inset: 0; display: block; background: var(--scrim); backdrop-filter: blur(1px); }
   .bot-hover-card { display: none; }
   .mobile-menu { position: absolute; top: 13px; left: 14px; display: inline-flex; }
   .active-bot-pill { left: 52%; }
@@ -17,7 +17,7 @@
   .messages { padding: 76px 13px 105px; }
   .message-bubble { max-width: calc(100vw - 80px); font-size: 13.5px; }
   .message-row.user .message-bubble { max-width: calc(100vw - 80px); }
-  .message-actions { position: absolute; top: -29px; right: 0; border-radius: 8px; background: #fff; box-shadow: 0 2px 8px #0000000c; }
+  .message-actions { position: absolute; top: -29px; right: 0; border-radius: 8px; background: var(--surface); box-shadow: 0 2px 8px var(--shadow-soft); }
   .message-row.user .message-actions { right: auto; left: 0; }
   .message-stack.card-stack { width: calc(100vw - 100px); }
   .file-card { width: min(340px, calc(100vw - 80px)); max-width: none; }

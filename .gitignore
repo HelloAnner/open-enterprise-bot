@@ -5,3 +5,10 @@
 **/.env.*.local
 **/.DS_Store
 *.log
+**/__pycache__/
+.private/
+.state/
+.tools/
+deploy/.secrets/
+deploy/.artifacts/
+deploy/guest/.build/

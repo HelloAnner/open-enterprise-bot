@@ -65,7 +65,7 @@ export function BotAvatar({ shape, color, className, active = false, processing 
     </motion.g>
     </motion.g>
     {processing && <motion.g data-processing-badge aria-hidden="true" initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", stiffness: 420, damping: 20 }}>
-      <circle cx="53" cy="51" r="10" fill="#ff9f1a" stroke="#fff" strokeWidth="2" />
+      <circle cx="53" cy="51" r="10" fill="#ff9f1a" stroke="var(--surface)" strokeWidth="2" />
       <Star x="48.5" y="46.5" width="9" height="9" color="#fff" fill="#fff" strokeWidth={1.5} />
     </motion.g>}
   </motion.svg>;

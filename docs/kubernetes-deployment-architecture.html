@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="企业级 Bot 的 K3s/Kubernetes 部署设计：四类独立 Deployment、多 Pod 副本、TS Agent Runtime、Go Scheduler、会话所有权与独立云电脑运行时。">
+  <title>K3s / Kubernetes · Pod 分布与业务分层</title>
+  <style>
+    /* One-pager compact engineering-report theme; unused components omitted. */
+    :root {
+      color-scheme: light;
+      --bg: #f7f7f5;
+      --card: #ffffff;
+      --ink: #1f2328;
+      --muted: #6b7280;
+      --line: #d0d4da;
+      --gray-bg: #f3f4f6;
+      --gray-line: #9ca3af;
+      --new: #1d4ed8;
+      --new-bg: #eff6ff;
+      --plat: #047857;
+      --plat-bg: #ecfdf5;
+      --risk: #b91c1c;
+      --risk-bg: #fef2f2;
+      --summary-bg: #111827;
+      --summary-ink: #f9fafb;
+      --radius: 10px;
+      --font-sans: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-mono: ui-monospace, Menlo, Consolas, monospace;
+      --content-width: 1280px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.6 var(--font-sans); -webkit-font-smoothing: antialiased; }
+    a { color: var(--new); text-underline-offset: 2px; }
+    :focus-visible { outline: 2px solid var(--new); outline-offset: 3px; }
+    .sheet { max-width: var(--content-width); margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 22px; margin: 0 0 12px; }
+    h2 { font-size: 18px; margin: 40px 0 10px; }
+    h3 { font-size: 15px; margin: 16px 0 8px; }
+    p { margin: 0 0 1em; }
+    p:last-child { margin-bottom: 0; }
+    ul, ol { margin: 0; padding-left: 20px; }
+    li { margin: 4px 0; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+    .card + .card, .card + .grid2, .grid2 + .card { margin-top: 14px; }
+    .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+    .grid2 > .card { margin: 0; }
+    .grid2 h3 { margin-top: 0; }
+    .summary { background: var(--summary-bg); color: var(--summary-ink); padding: 20px 24px; }
+    .summary strong { color: var(--card); }
+    code { font: 12.5px var(--font-mono); background: var(--gray-bg); padding: 1px 4px; border-radius: 4px; overflow-wrap: anywhere; }
+    .note, .sources { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+    .note code { font-size: 11.5px; }
+    .sources { line-height: 1.8; }
+    .sources a { overflow-wrap: anywhere; }
+    .callout { margin: 12px 0 0; padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--new); border-radius: 8px; background: var(--new-bg); font-size: 13px; }
+    .callout.error { border-color: var(--risk); background: var(--risk-bg); }
+    .tablewrap { max-width: 100%; overflow-x: auto; }
+    table { width: 100%; min-width: 740px; border-collapse: collapse; font-size: 13.5px; }
+    caption { text-align: left; color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { background: var(--gray-bg); font-weight: 600; }
+    tbody tr:last-child > * { border-bottom: 0; }
+    tbody th { background: var(--card); }
+    .numeric { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .diagram-scroll { max-width: 100%; overflow-x: auto; }
+    .diagram-scroll svg { min-width: 1040px; }
+    svg.diagram { display: block; width: 100%; height: auto; }
+    svg text { font-family: var(--font-sans); fill: var(--ink); }
+    svg .box, svg .box-gray, svg .box-new, svg .box-plat, svg .box-risk { stroke-width: 1.5; }
+    svg .box { fill: var(--card); stroke: var(--gray-line); }
+    svg .box-gray { fill: var(--gray-bg); stroke: var(--gray-line); }
+    svg .box-new { fill: var(--new-bg); stroke: var(--new); }
+    svg .box-plat { fill: var(--plat-bg); stroke: var(--plat); }
+    svg .box-risk { fill: var(--risk-bg); stroke: var(--risk); }
+    svg .t { font-size: 14px; font-weight: 600; }
+    svg .tl { font-size: 13px; font-weight: 600; fill: var(--muted); }
+    svg .m { font-size: 13px; }
+    svg .d { font-size: 12px; fill: var(--muted); }
+    svg .el { font-size: 11.5px; fill: var(--muted); }
+    svg .mono { font-family: var(--font-mono); }
+    svg .c-new { fill: var(--new); }
+    svg .c-plat { fill: var(--plat); }
+    svg .c-risk { fill: var(--risk); }
+    svg .edge-new { fill: none; stroke: var(--new); stroke-width: 1.5; }
+    svg .edge-plat { fill: none; stroke: var(--plat); stroke-width: 1.5; }
+    svg .edge-risk { fill: none; stroke: var(--risk); stroke-width: 1.5; }
+    svg .return { stroke-dasharray: 5 4; }
+    svg .lifeline { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 4; }
+    svg .band { fill: var(--gray-bg); }
+    svg .band-plat { fill: var(--plat-bg); }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; color: var(--muted); font-size: 12.5px; }
+    .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid var(--c, var(--gray-line)); background: var(--b, var(--gray-bg)); }
+    .legend span.ln::before { width: 22px; height: 0; border: 0; border-top: 2px solid var(--c, var(--gray-line)); border-radius: 0; background: none; vertical-align: 3px; }
+    .legend span.ln.return::before { border-top-style: dashed; }
+    @media (max-width: 760px) {
+      .sheet { padding: 20px 12px 48px; }
+      h1 { font-size: 19px; }
+      h2 { font-size: 16px; margin-top: 28px; }
+      .grid2 { grid-template-columns: 1fr; }
+      .summary { padding: 18px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+    @media print {
+      body { background: var(--card); font-size: 9.5pt; }
+      .sheet { max-width: none; padding: 0; }
+      h1 { font-size: 15pt; }
+      h2 { font-size: 11.5pt; margin-top: 18px; break-after: avoid; }
+      h3 { break-after: avoid; }
+      .card { padding: 10px 12px; }
+      .summary { background: var(--gray-bg); color: var(--ink); }
+      .summary strong { color: var(--ink); }
+      .grid2 { grid-template-columns: 1fr; }
+      table { min-width: 0; font-size: 8.5pt; }
+      th, td { padding: 5px 7px; }
+      tr, .card, .callout { break-inside: avoid; }
+      thead { display: table-header-group; }
+      .tablewrap, .diagram-scroll { overflow: visible; }
+      .diagram-scroll svg { min-width: 0; }
+      a { color: inherit; }
+      @page { size: A4; margin: 14mm; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet" id="content">
+    <h1>K3s / Kubernetes：Pod 分布与业务分层</h1>
+
+    <h2>一、部署结论与设计范围</h2>
+    <div class="card summary">
+      <p><strong>四类独立 Deployment，每类独立发布、独立扩容、多 Pod 副本。</strong>Go 负责业务接入、确定性运行调度与桌面代理；TypeScript 单独承担 Agent Runtime。不是把四个模块或四个容器塞进一个 App Pod，也不是给每个用户、Bot 或 Agent 都创建一个 Pod。</p>
+    </div>
+    <div class="card">
+      <p>当前以 <strong>K3s 部署</strong>，采用 Kubernetes（K8s）的 Deployment、Service、健康检查与资源调度机制表达工作负载，保留迁移到其他 Kubernetes 发行版的空间。发行版相关的 Ingress、存储与节点配置单独管理，不把 K3s 的默认行为当作跨集群保证。</p>
+      <p>业务拆成 <code>api-gateway</code>、<code>scheduler</code>、<code>agent-runtime</code>、<code>desktop-gateway</code> 四组。每组拥有独立进程入口、镜像发布与副本配置；Go 服务可以复用同一代码仓库和领域基础包，但不能靠进程内调用绕过已定义的服务边界。</p>
+      <div class="callout"><strong>两个“调度器”不要混淆。</strong>本项目的 Go Scheduler 调度业务事件、Session、Job 与用户云电脑；Kubernetes 的 kube-scheduler 调度 Pod 到节点。前者不是替换后者，也不意味着每个业务 Job 必须创建一个 Kubernetes Job。</div>
+      <p class="note">本专题补充 <a href="technical-architecture.html">技术架构</a> 与 <a href="cloud-desktop-architecture.html">云电脑架构</a> 的物理部署边界。云电脑文档中曾放在 App Pod 内的 Compute Manager，在本部署约定中归入独立 Go Scheduler；不再另设一个包揽所有业务的 App Pod。本文不修改旧文档，也不表示已生成部署清单或完成上线。</p>
+    </div>
+
+    <h2>二、四类 Deployment 与多副本 Pod 分布</h2>
+    <div class="card">
+      <div class="diagram-scroll" tabindex="0" role="region" aria-label="四类独立 Deployment 与多个 Pod 副本分布图，可横向滚动">
+        <svg class="diagram" viewBox="0 0 1160 746" role="img" aria-labelledby="deploy-title deploy-desc">
+          <title id="deploy-title">四个独立 Deployment，各自包含可扩容的同类 Pod</title>
+          <desc id="deploy-desc">K3s 或 Kubernetes 集群内有四个独立业务 Deployment：Go API Gateway 示例两个 Pod，Go Scheduler 示例两个 Pod，TypeScript Agent Runtime 示例三个 Pod，Go Desktop Gateway 示例两个 Pod，共九个示例业务 Pod。它们不是一个 Pod 内的容器。宿主 Node Runtime、用户 microVM，以及数据库、消息与持久存储有各自独立生命周期，不能混入业务 Pod 副本计数。</desc>
+          <rect class="box-gray" x="16" y="16" width="1128" height="568" rx="10"/>
+          <text class="t" x="34" y="44">K3s / Kubernetes · 4 个独立 Deployment，不是 1 个 Pod 内的 4 个容器</text>
+          <text class="d" x="34" y="67">独立镜像、服务入口、发布与副本数；同类 Pod 可替换，持久状态放在独立存储中</text>
+
+          <rect class="box-new" x="34" y="90" width="528" height="196" rx="10"/>
+          <text class="t c-new" x="50" y="118">api-gateway · Go · replicas=2（示例）</text>
+          <text class="d" x="50" y="143">HTTP / WebSocket / 飞书 / 企微；业务 API 与输入事件转换</text>
+          <rect class="box" x="50" y="174" width="240" height="52" rx="8"/>
+          <text class="t mono" x="66" y="196">api-1</text><text class="d" x="66" y="216">独立 Pod / Go 进程</text>
+          <rect class="box" x="306" y="174" width="240" height="52" rx="8"/>
+          <text class="t mono" x="322" y="196">api-2</text><text class="d" x="322" y="216">同类副本，可独立替换</text>
+          <text class="d" x="50" y="258">接入与用户连接，不运行 Agent Loop</text>
+
+          <rect class="box-plat" x="582" y="90" width="544" height="196" rx="10"/>
+          <text class="t c-plat" x="598" y="118">scheduler · Go · replicas=2（示例）</text>
+          <text class="d" x="598" y="143">确定性事件分派、运行调度与资源协调</text>
+          <rect class="box" x="598" y="174" width="248" height="52" rx="8"/>
+          <text class="t mono" x="614" y="196">scheduler-1</text><text class="d" x="614" y="216">独立 Pod / Go 进程</text>
+          <rect class="box" x="862" y="174" width="248" height="52" rx="8"/>
+          <text class="t mono" x="878" y="196">scheduler-2</text><text class="d" x="878" y="216">按对象协调，不重复调度</text>
+          <text class="d" x="598" y="258">Router Dispatch / Compute Manager / 执行状态管理</text>
+
+          <rect class="box-new" x="34" y="310" width="528" height="228" rx="10"/>
+          <text class="t c-new" x="50" y="338">agent-runtime · TypeScript · replicas=3（示例）</text>
+          <text class="d" x="50" y="363">Router / Ticket / Worker 的模型调用与工具决策循环</text>
+          <rect class="box" x="50" y="392" width="152" height="66" rx="8"/>
+          <text class="t mono" x="66" y="418">runtime-1</text><text class="d" x="66" y="441">独立 Pod / TS 进程</text>
+          <rect class="box" x="218" y="392" width="152" height="66" rx="8"/>
+          <text class="t mono" x="234" y="418">runtime-2</text><text class="d" x="234" y="441">多个逻辑 Session</text>
+          <rect class="box" x="386" y="392" width="160" height="66" rx="8"/>
+          <text class="t mono" x="402" y="418">runtime-3</text><text class="d" x="402" y="441">独立扩缩与替换</text>
+          <text class="d" x="50" y="487">每个 Pod 承载多个逻辑 Session；不是每个 Agent 一个 Pod</text>
+          <text class="d" x="50" y="511">同一用户 Router 同时仅一个活跃所有者</text>
+
+          <rect class="box-plat" x="582" y="310" width="544" height="228" rx="10"/>
+          <text class="t c-plat" x="598" y="338">desktop-gateway · Go · replicas=2（示例）</text>
+          <text class="d" x="598" y="363">桌面画面、Agent 隧道与人工接管的连接代理</text>
+          <rect class="box" x="598" y="392" width="248" height="66" rx="8"/>
+          <text class="t mono" x="614" y="418">desktop-1</text><text class="d" x="614" y="441">独立 Pod / Go 进程</text>
+          <rect class="box" x="862" y="392" width="248" height="66" rx="8"/>
+          <text class="t mono" x="878" y="418">desktop-2</text><text class="d" x="878" y="441">连接断开后可重新绑定</text>
+          <text class="d" x="598" y="487">屏幕鉴权 / VNC 转发 / 控制权校验</text>
+          <text class="d" x="598" y="511">不运行 Firecracker 进程，不持有用户磁盘</text>
+          <text class="d" x="34" y="566">示例业务 Pod 合计 2 + 2 + 3 + 2 = 9；不含数据库、消息系统、前端、Kubernetes 系统组件与用户 VM</text>
+
+          <rect class="box-gray" x="16" y="620" width="552" height="110" rx="10"/>
+          <text class="t" x="32" y="647">宿主计算池 · 不随业务 Pod 生命周期退出</text>
+          <rect class="box" x="32" y="668" width="248" height="46" rx="8"/>
+          <text class="m" x="48" y="696">Go Node Runtime / systemd</text>
+          <rect class="box" x="296" y="668" width="256" height="46" rx="8"/>
+          <text class="m" x="312" y="696">用户 microVM / Agent / Job</text>
+          <rect class="box-gray" x="592" y="620" width="552" height="110" rx="10"/>
+          <text class="t" x="608" y="647">独立有状态基础设施 · 托管或专门工作负载</text>
+          <rect class="box" x="608" y="668" width="248" height="46" rx="8"/>
+          <text class="m" x="624" y="696">PostgreSQL / NATS</text>
+          <rect class="box" x="872" y="668" width="256" height="46" rx="8"/>
+          <text class="m" x="888" y="696">对象存储 / 用户持久卷</text>
+        </svg>
+      </div>
+      <div class="legend" aria-label="图例">
+        <span style="--c:var(--new);--b:var(--new-bg)">业务接入 / 智能执行</span>
+        <span style="--c:var(--plat);--b:var(--plat-bg)">业务调度 / 连接代理</span>
+        <span>部署与基础设施生命周期边界</span>
+      </div>
+      <p class="note">副本数仅用于说明部署关系，不是容量或高可用承诺。底部表示独立生命周期，不强制数据库位于集群外，也不要求计算宿主不能加入 K3s；关键是 VM 与数据不能依附业务 Pod 存活。</p>
+    </div>
+    <div class="card">
+      <div class="tablewrap" tabindex="0" role="region" aria-label="独立服务与伸缩依据表，可横向滚动">
+        <table>
+          <caption>以下为建议的 Deployment / 服务命名，尚未创建 Kubernetes 资源。</caption>
+          <thead><tr><th scope="col">独立服务</th><th scope="col">语言与主要职责</th><th scope="col">独立伸缩依据</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><code>api-gateway</code></th><td>Go：组织 / 用户 / Bot 配置、鉴权、聊天 API、渠道回调、WebSocket 与事件规范化。</td><td>请求延迟、请求量、活跃连接数；不与模型调用并发数绑定。</td></tr>
+            <tr><th scope="row"><code>scheduler</code></th><td>Go：Router Dispatch、订阅投递、Session 所有权、配额、超时与恢复、执行控制、Compute Manager。</td><td>待分派事件、调度延迟、租约冲突、恢复积压；不能让多个副本同时抢写同一对象。</td></tr>
+            <tr><th scope="row"><code>agent-runtime</code></th><td>TS：Router Pool、Main / Work / Worker Session、模型调用、工具选择和语义编排。</td><td>活跃模型请求、会话内存、待处理输入与模型供应商限额；不能只按 CPU 决定扩缩。</td></tr>
+            <tr><th scope="row"><code>desktop-gateway</code></th><td>Go：屏幕连接、VNC / Agent 隧道、会话鉴权、控制与人工接管代理。</td><td>并发桌面连接、带宽、转发延迟与连接缓冲；不因业务 API 发布而一起重启。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>Deployment、Pod、逻辑 Agent 是三个层次。</strong>一个 Deployment 管理多个同类 Pod；一个 Agent Runtime Pod 承载多个逻辑 Agent / Session；一个用户仍只有一个逻辑 Router，但它可以在不同 Runtime Pod 之间受控迁移。<a href="#source-deployment">[1]</a></div>
+    </div>
+
+    <h2>三、业务分层与 TS / Go 职责</h2>
+    <div class="grid2">
+      <div class="card">
+        <h3>TypeScript：决定做什么</h3>
+        <ul>
+          <li>Router 理解人的意图，决定是否回复、创建哪些 Ticket，并统一组织对外沟通。</li>
+          <li>Ticket 和 Worker 管理任务目标、工作上下文、下一步模型推理与工具选择。</li>
+          <li>提出订阅、Job 操作和云电脑能力请求；收到事件后继续判断，不亲自管理宿主进程或持久卷。</li>
+          <li>Router、Ticket、Worker 首版共用 Agent Runtime 部署，内部保持模块与 Session 隔离；它们不是三个额外 Deployment。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Go：管理执行如何发生</h3>
+        <ul>
+          <li>API 处理业务配置、接入身份、事件来源与渠道输出；基础设施权限不交给模型进程。</li>
+          <li>Scheduler 按授权、订阅和 Session 所有者进行确定性分派，管理执行配额、租约、超时和恢复。</li>
+          <li>Compute Manager 作为 Scheduler 内部模块提交用户 VM 生命周期操作，不再藏在一个总控 App Pod 里。</li>
+          <li>Desktop Gateway 专职连接与代理，不成为第二个模型 Router，也不承担业务任务规划。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <div class="tablewrap" tabindex="0" role="region" aria-label="领域状态与写入责任表，可横向滚动">
+        <table>
+          <thead><tr><th scope="col">领域状态 / 能力</th><th scope="col">主要负责服务</th><th scope="col">边界</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">用户、Bot、渠道、消息与 Thread 元数据</th><td>API Gateway / Go</td><td>保留可信用户身份、来源会话与 Bot 归属；授权不能只在入口检查一次。</td></tr>
+            <tr><th scope="row">推理上下文、任务目标与 Session 检查点</th><td>Agent Runtime / TS</td><td>语义编排态由 Agent 维护；不擅自覆盖 Go 管理的执行终态。</td></tr>
+            <tr><th scope="row">订阅路由、Session 租约与运行分配</th><td>Scheduler / Go</td><td>Agent 通过明确请求表达订阅意图；调度控制面负责有效路由与所有权协调。</td></tr>
+            <tr><th scope="row">Job 执行状态、重试与取消记录</th><td>Scheduler / Go</td><td>根据 Node Runtime / Compute Agent 的实际结果推进；发出 Start 或 Stop 不等于已经完成。</td></tr>
+            <tr><th scope="row">云电脑归属、期望状态、运行代次与卷绑定</th><td>Scheduler 内的 Compute Manager / Go</td><td>真正开关机与挂载由宿主运行时执行；不能由业务 Pod 进程树持有 VM 生命周期。</td></tr>
+            <tr><th scope="row">桌面连接与控制权校验</th><td>Desktop Gateway + Guest Compute Agent</td><td>连接临时存在于网关；目标映射与权限可恢复，控制权不能只靠某个网关 Pod 的内存锁。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">可以共用一个 PostgreSQL 集群，但要划分领域表 / schema、写入身份与命令边界。任务目标、Agent 编排态和 Job 运行态是不同对象；同一个状态字段只设一个权威写入方，不在 TS、Go 两侧各造一套相互同步的状态机。</p>
+    </div>
+
+    <h2>四、消息接入、执行与结果回传</h2>
+    <div class="card">
+      <div class="diagram-scroll" tabindex="0" role="region" aria-label="Go 接入与调度、TS Agent 和后台 Job 协作时序图，可横向滚动">
+        <svg class="diagram" viewBox="0 0 1160 704" role="img" aria-labelledby="flow-title flow-desc">
+          <title id="flow-title">Go 服务与 TypeScript Agent Runtime 通过事件和命令解耦</title>
+          <desc id="flow-desc">API Gateway 将可信用户输入转换成事件，经 Event Bus 到 Go Scheduler，Scheduler 定向交给 Session 所属的 TS Agent Runtime。Agent 执行短回合推理，并向 Go Scheduler 提交 Job 操作。Scheduler 通过受控节点链路下发实际执行，记录回传状态并发布结果事件，恢复对应 Worker 或 Ticket。后台 Job 运行时仍可接收新消息与控制。人的回复由 Router 统筹后经 API Gateway 按 Bot 和来源会话返回。桌面画面通过独立 Desktop Gateway 传递。</desc>
+          <defs>
+            <marker id="flow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/></marker>
+            <marker id="flow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#047857"/></marker>
+          </defs>
+          <rect class="band" x="16" y="80" width="1128" height="200" rx="10"/>
+          <rect class="band-plat" x="16" y="292" width="1128" height="244" rx="10"/>
+          <rect class="band" x="16" y="548" width="1128" height="100" rx="10"/>
+          <rect class="box-new" x="40" y="16" width="160" height="42" rx="8"/>
+          <text class="t" x="120" y="42" text-anchor="middle">API / Go</text>
+          <rect class="box-gray" x="260" y="16" width="180" height="42" rx="8"/>
+          <text class="t" x="350" y="42" text-anchor="middle">Event Bus</text>
+          <rect class="box-plat" x="500" y="16" width="180" height="42" rx="8"/>
+          <text class="t" x="590" y="42" text-anchor="middle">Scheduler / Go</text>
+          <rect class="box-new" x="740" y="16" width="180" height="42" rx="8"/>
+          <text class="t" x="830" y="42" text-anchor="middle">Agent Runtime / TS</text>
+          <rect class="box-gray" x="980" y="16" width="164" height="42" rx="8"/>
+          <text class="t" x="1062" y="42" text-anchor="middle">Compute Node / VM</text>
+          <path class="lifeline" d="M120,58 V648 M350,58 V648 M590,58 V648 M830,58 V648 M1062,58 V648"/>
+
+          <path class="edge-new" d="M120,110 H350" marker-end="url(#flow-blue)"/>
+          <text class="el c-new" x="235" y="100" text-anchor="middle">① 规范化后的用户事件</text>
+          <path class="edge-plat" d="M350,150 H590" marker-end="url(#flow-green)"/>
+          <text class="el c-plat" x="470" y="140" text-anchor="middle">② 入站事件 / Policy 过滤</text>
+          <path class="edge-plat" d="M590,190 H830" marker-end="url(#flow-green)"/>
+          <text class="el c-plat" x="710" y="180" text-anchor="middle">③ 路由到 Session 所有者</text>
+          <rect class="box" x="740" y="216" width="180" height="52" rx="8"/>
+          <text class="m" x="756" y="237">④ 模型 / 工具决策</text>
+          <text class="d" x="756" y="257">短回合后等待新事件</text>
+
+          <path class="edge-new" d="M830,322 H590" marker-end="url(#flow-blue)"/>
+          <text class="el c-new" x="710" y="312" text-anchor="middle">⑤ Start(Job) · 计划与参数</text>
+          <path class="edge-plat" d="M590,362 H1062" marker-end="url(#flow-green)"/>
+          <text class="el c-plat" x="826" y="352" text-anchor="middle">⑥ 鉴权 / 幂等 / 下发执行</text>
+          <path class="edge-plat return" d="M1062,402 H590" marker-end="url(#flow-green)"/>
+          <text class="el c-plat" x="826" y="392" text-anchor="middle">⑦ 已受理 / Job 进度与终态事件</text>
+          <path class="edge-new" d="M120,402 H350" marker-end="url(#flow-blue)"/>
+          <text class="el c-new" x="235" y="392" text-anchor="middle">⑧ 新消息 / 控制继续接收</text>
+          <path class="edge-plat return" d="M590,442 H350" marker-end="url(#flow-green)"/>
+          <text class="el c-plat" x="470" y="432" text-anchor="middle">⑨ 记录执行态，发布结果</text>
+          <path class="edge-new return" d="M350,482 H830" marker-end="url(#flow-blue)"/>
+          <text class="el c-new" x="590" y="472" text-anchor="middle">⑩ 定向恢复 Worker / Ticket，不要求 Router 重新分派</text>
+          <path class="edge-new return" d="M830,580 H350" marker-end="url(#flow-blue)"/>
+          <text class="el c-new" x="590" y="570" text-anchor="middle">⑪ Router 统筹后的输出 / 流式通道</text>
+          <path class="edge-new return" d="M350,622 H120" marker-end="url(#flow-blue)"/>
+          <text class="el c-new" x="235" y="612" text-anchor="middle">⑫ 按 Bot / 来源会话返回用户</text>
+          <text class="d" x="40" y="679">独立画面链路：客户端经 Desktop Gateway 连接目标 VM；VNC 帧不进入持久任务队列。</text>
+        </svg>
+      </div>
+      <div class="legend" aria-label="图例">
+        <span class="ln" style="--c:var(--new)">业务输入 / Agent 请求 / 用户输出</span>
+        <span class="ln" style="--c:var(--plat)">确定性调度 / 执行与状态回传</span>
+        <span class="ln return">虚线表示确认、事件或结果回传；竖虚线为生命线</span>
+      </div>
+      <p class="note">图中 Event Bus 是逻辑传递层，持久事件与流式输出采用不同传递语义。第⑥步省略 Desktop Gateway 的受控代理 / Agent 隧道；实际执行仍由 Node Runtime 与 Guest Compute Agent 完成。不是所有工具都必须进入 VM，本文只展开已有云电脑执行路径。</p>
+    </div>
+    <div class="card">
+      <ul>
+        <li><strong>首次事件：</strong>交对应用户的 Router 理解意图；需要长任务时创建 Ticket 和 Worker，不把整个工作放在 API 请求或一个阻塞式 ReAct 回合中。</li>
+        <li><strong>已有订阅：</strong>Router Dispatch 根据 Thread 与 Ticket 的多对多订阅，直接投递到目标 Ticket / Worker 的会话所有者，不强制再调用 Router 模型。</li>
+        <li><strong>人的新消息：</strong>仍由用户 Router 统筹；命中订阅时相关任务可同时消费。Job 完成、控制、输入和输出可以异步发生，不等后台工作结束才接收消息。</li>
+        <li><strong>通信契约：</strong>同步查询先用 HTTP / JSON，异步协作用版本化事件 / 命令；携带 event_id、可信用户与 Bot 标识、目标 Session / Job、关联 ID 和必要代次。Start / Stop 等副作用请求还需要稳定的 operation_id。</li>
+      </ul>
+      <p class="note">模型增量输出不能作为新的用户输入再次触发 Agent；桌面画面不经过模型调度。所有入口与执行边界保留 Policy、Vault / Security Form 和敏感数据约束，不因服务位于内网而取消授权检查。</p>
+    </div>
+
+    <h2>五、可替换 Pod 与有状态 Session</h2>
+    <div class="card">
+      <p><strong>逻辑会话有状态，但 Pod 不保存唯一的持久状态。</strong>Agent Runtime 内可以有上下文缓存、活动模型连接与临时输入队列；这些不是唯一事实来源。持久检查点、输入接收记录、执行关联与租约放在外部存储，Pod 消失后可由其他副本恢复。</p>
+      <div class="diagram-scroll" tabindex="0" role="region" aria-label="Agent Runtime 会话所有权与受控接管图，可横向滚动">
+        <svg class="diagram" viewBox="0 0 1160 418" role="img" aria-labelledby="owner-title owner-desc">
+          <title id="owner-title">多个 Runtime 副本可以接管 Session，但不能同时成为活跃所有者</title>
+          <desc id="owner-desc">Session S1 原由 Agent Runtime A 持有，租约代次为7。A退出或租约失效后，Scheduler通过持久租约记录受控地将所有权交给Runtime B，代次更新为8。B读取检查点并核对现有Job，不重新创建用户电脑。状态提交、结果输出和执行命令入口必须验证当前代次，拒绝旧A迟到的请求。租约本身不会自动停止旧进程，副作用边界还必须执行隔离校验。</desc>
+          <defs>
+            <marker id="owner-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#047857"/></marker>
+            <marker id="owner-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/></marker>
+          </defs>
+          <rect class="box-new" x="24" y="24" width="268" height="130" rx="10"/>
+          <text class="t c-new" x="40" y="52">agent-runtime A · 原 owner</text>
+          <text class="d mono" x="40" y="81">session_id=S1 / epoch=7</text>
+          <text class="d" x="40" y="108">上下文缓存与模型连接是临时状态</text>
+          <text class="d" x="40" y="130">不是 Session 的唯一持久副本</text>
+          <rect class="box-risk" x="24" y="200" width="268" height="148" rx="10"/>
+          <text class="t c-risk" x="40" y="228">Pod A 退出 / 租约失效</text>
+          <text class="d" x="40" y="258">旧进程也可能暂时未真正停止</text>
+          <text class="d" x="40" y="282">晚到输出、写入与命令仍带旧代次</text>
+          <text class="d" x="40" y="316">不能只靠“已换 Pod”避免双写</text>
+
+          <rect class="box-plat" x="384" y="24" width="360" height="324" rx="10"/>
+          <text class="t c-plat" x="400" y="52">持久状态 · PostgreSQL / Scheduler 校验</text>
+          <rect class="box" x="400" y="92" width="328" height="60" rx="8"/>
+          <text class="m" x="416" y="118">原记录：S1 / owner A / epoch 7</text>
+          <text class="d" x="416" y="140">保留输入、检查点与执行操作关联</text>
+          <rect class="box" x="400" y="184" width="328" height="60" rx="8"/>
+          <text class="m" x="416" y="210">接管后：S1 / owner B / epoch 8</text>
+          <text class="d" x="416" y="232">新所有者只从有效持久状态续行</text>
+          <text class="d" x="400" y="283">旧所有者失去写入和下发副作用的资格</text>
+          <text class="d" x="400" y="309">检查代次不是日志字段，而是实际准入条件</text>
+
+          <rect class="box-new" x="836" y="24" width="300" height="130" rx="10"/>
+          <text class="t c-new" x="852" y="52">agent-runtime B · 新 owner</text>
+          <text class="d mono" x="852" y="81">session_id=S1 / epoch=8</text>
+          <text class="d" x="852" y="108">读取检查点，不重建用户电脑</text>
+          <text class="d" x="852" y="130">接收新事件，核对现有 Job 状态</text>
+          <rect class="box-plat" x="836" y="200" width="300" height="148" rx="10"/>
+          <text class="t c-plat" x="852" y="228">状态 / 输出 / 执行命令入口</text>
+          <text class="d" x="852" y="258">只接受当前 owner 与有效代次</text>
+          <text class="d" x="852" y="282">旧 owner 的迟到请求被拒绝</text>
+          <text class="d" x="852" y="316">不能盲目重跑已提交或已完成 Job</text>
+          <path class="edge-plat" d="M292,89 H384" marker-end="url(#owner-green)"/>
+          <text class="el c-plat" x="307" y="77">原所有者</text>
+          <path class="edge-plat" d="M744,89 H836" marker-end="url(#owner-green)"/>
+          <text class="el c-plat" x="757" y="77">受控接管</text>
+          <path class="edge-plat" d="M564,152 V184" marker-end="url(#owner-green)"/>
+          <path class="edge-risk" d="M158,154 V200" marker-end="url(#owner-red)"/>
+          <path class="edge-plat" d="M986,154 V200" marker-end="url(#owner-green)"/>
+          <path class="edge-risk" d="M292,274 H336 V372 H1152 V274 H1136" marker-end="url(#owner-red)"/>
+          <text class="el c-risk" x="384" y="398">旧代次的写入与副作用请求必须被拒绝；租约本身不会自动停止旧进程。</text>
+        </svg>
+      </div>
+      <div class="legend" aria-label="图例">
+        <span style="--c:var(--new);--b:var(--new-bg)">可替换的 Runtime 副本</span>
+        <span style="--c:var(--plat);--b:var(--plat-bg)">持久所有权 / 有效状态与命令准入</span>
+        <span style="--c:var(--risk);--b:var(--risk-bg)">故障与旧代次请求拒绝路径</span>
+      </div>
+      <p class="note">图中 epoch 7 / 8 是说明机制的示例，不是已实现协议。Session 所有权与 VM / 用户卷单写入者代次属于不同作用域，不能混成一个全局版本号；租约时长与失效检测阈值尚未确定。</p>
+    </div>
+    <div class="card">
+      <ul>
+        <li><strong>定向投递，不靠随机负载均衡：</strong>Kubernetes Service 提供稳定入口和后端发现，但不天然理解 user_id 或 Session 所有权。业务事件由 Scheduler 定向到 owner；只做粘性会话不能代替持久租约与故障接管。<a href="#source-service">[2]</a></li>
+        <li><strong>所有者粒度是会话：</strong>每用户一个逻辑 Router，同用户多个 Bot 共用它；Ticket / Worker 保持各自独立 Session。不同会话可落在不同 Runtime Pod，不用一把覆盖全用户长任务的锁。</li>
+        <li><strong>先可靠接收，再确认消息：</strong>输入写入可恢复的会话状态或收件记录后才能确认消费；不能只丢进内存队列就 ACK，也不应把整个模型 / Job 生命周期绑在一次队列消费回调里。</li>
+        <li><strong>恢复不是从头重跑：</strong>先读取检查点、去重记录与已有 operation_id / job_id，查询外部执行实际状态。进行中的模型连接可能中断，需要明确恢复或失败重试，不声称 TCP / 模型生成可以自动迁移。</li>
+        <li><strong>不承诺外部副作用天然恰好一次：</strong>状态幂等、代次校验和操作记录要落到执行入口；已经发生的网页提交、发信或文件修改，不能仅因 Pod 换了就安全重放。</li>
+      </ul>
+    </div>
+
+    <h2>六、消息系统、持久数据与基础设施</h2>
+    <div class="card">
+      <div class="tablewrap" tabindex="0" role="region" aria-label="消息和持久化基础设施表，可横向滚动">
+        <table>
+          <thead><tr><th scope="col">基础设施</th><th scope="col">首版建议用途</th><th scope="col">部署与持久化约束</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">PostgreSQL</th><td>业务事实、Session 检查点、租约、任务 / Job 状态、订阅与用户 VM 归属；按领域明确表的写入责任。</td><td>托管数据库或专门的有状态工作负载。不能把数据库 Pod 复制三份就视为已具备复制与故障切换。</td></tr>
+            <tr><th scope="row">NATS JetStream</th><td>作为单一消息系统的起步建议，承载需要可靠投递的输入、控制、执行与完成事件；TS / Go 使用版本化契约通信。</td><td>配置持久化、确认、重投、保留上限与消费位置。消息可能重复，消费者必须幂等；具体版本与 HA 拓扑另行锁定。</td></tr>
+            <tr><th scope="row">流式输出 / 桌面传输</th><td>模型增量输出经独立流式通道，VNC 画面经 Desktop Gateway；最终消息与任务结果保留持久记录。</td><td>不把每个 token 或 VNC 帧写进持久任务队列；连接断开后的重连、结果补查与权限校验由对应入口处理。</td></tr>
+            <tr><th scope="row">对象存储与用户块卷</th><td>Artifact、备份与用户电脑持久磁盘；保留 user_id、desktop_id、volume_id 的可信关联。</td><td>独立于业务 Pod；用户块卷需要单写入者与跨节点恢复能力。对象存储不能直接当作 Firecracker 的可写块盘使用。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>消息投递与任务事实要可靠衔接。</strong>状态变更与待发布事件可使用事务 Outbox；消费侧在可靠记录输入或结果后确认，并以 event_id / operation_id 去重。Outbox 是服务内部持久化与发布机制，不需要因此增加第五类业务 Deployment。</div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h3>负载均衡与事件扇出不同</h3>
+        <p>同一个消费者由多个副本分工处理，用于负载均衡；多个独立订阅者都需要看到同一事件，则需要独立消费位置或明确的应用层扇出。Thread 的多 Ticket 订阅不能通过把它们塞入同一个竞争消费组来实现。</p>
+        <p class="note">JetStream 的确认、重投与保留策略需要一并设计；不能把“至少一次”解释为“无重复”或“永不丢弃直到处理”。<a href="#source-nats">[3]</a></p>
+      </div>
+      <div class="card">
+        <h3>控制流与噪声流不同</h3>
+        <p>停止、授权、失败和完成事件不能被大量进度消息长期阻塞。常规进度可以合并或限频；控制事件需要独立的处理预算与通道约束，且不等待某个模型回合或 Job 先结束。</p>
+        <p class="note">本轮确定消息语义与隔离原则，不冻结 topic 名、分片数、消费者数量或优先级阈值；先不同时引入多套队列。</p>
+      </div>
+    </div>
+
+    <h2>七、节点分布、发布与故障边界</h2>
+    <div class="card">
+      <h3>K3s / Kubernetes 节点职责</h3>
+      <ul>
+        <li><strong>集群控制平面：</strong>由 K3s / Kubernetes 管理 API Server、集群状态和 Pod 调度；不计入四类业务 Deployment。</li>
+        <li><strong>通用业务节点：</strong>运行 API、Scheduler、Agent Runtime 与 Desktop Gateway 的 Pod；以资源请求 / 限制、调度约束与拓扑分散控制资源及故障域，不要求每类独占物理节点。</li>
+        <li><strong>计算节点：</strong>具备 Linux / KVM，优先由宿主 systemd 托管 Node Runtime；Firecracker VM 使用独立服务 / 运行作用域，不能因业务 Pod 或管理进程的重启被默认连带终止。</li>
+        <li><strong>Guest 内：</strong>每用户 microVM 保留 Compute Agent、浏览器、屏幕与 Job；Compute Agent 不是第五类 Kubernetes 业务 Pod，实际执行也不是默认创建 Kubernetes Job。</li>
+      </ul>
+      <div class="callout error"><strong>K3s 默认 local-path 不是跨节点持久化保证。</strong>它使用节点本地存储，不能直接满足“原计算节点故障后，在另一节点恢复同一用户盘”的要求。数据库、消息持久化与用户卷分别选择匹配故障域的存储、保留和备份策略。<a href="#source-storage">[4]</a></div>
+    </div>
+    <div class="card">
+      <div class="tablewrap" tabindex="0" role="region" aria-label="业务服务发布和恢复行为表，可横向滚动">
+        <table>
+          <thead><tr><th scope="col">发布 / 故障对象</th><th scope="col">应该如何退出与恢复</th><th scope="col">不应影响什么</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">API Gateway Pod</th><td>摘除新流量，处理连接排空；客户端重连到其他副本，已持久接收的消息不重复创建任务。</td><td>不重启 Agent Runtime，不停止用户 VM / Job，不清空 Thread 或会话记录。</td></tr>
+            <tr><th scope="row">Agent Runtime Pod</th><td>停止认领新会话，保存检查点并受控交接 / 释放租约；必要时中断模型生成，新 owner 核对已有 Job 后续行。</td><td>不因本 Pod 退出而自动停止全部 Guest Job，更不终止 Firecracker 或删除用户盘。</td></tr>
+            <tr><th scope="row">Scheduler Pod</th><td>释放 / 接管调度所有权，恢复未完成操作；多副本根据租约、操作幂等与实际状态协调。</td><td>不重复 Start 同一 Job / VM；不能把控制连接断开等同于执行失败或电脑已经关机。</td></tr>
+            <tr><th scope="row">Desktop Gateway Pod</th><td>排空或重建桌面连接，按有效授权重新绑定同一 VM / screen_id；人工控制权由统一边界校验。</td><td>不删除屏幕规格，不重建浏览器 Profile，不销毁 VM。</td></tr>
+            <tr><th scope="row">数据库 / 消息系统 / 计算节点</th><td>使用各自的持久化与恢复方案；基础设施不可用时停止未经确认的接管和副作用命令，故障后对账。</td><td>不能仅因业务 Pod 有多个副本就宣称整个平台已经高可用或数据零丢失。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">使用 startup / readiness / liveness 检查、合理退出宽限期与滚动更新策略。readiness 不是长连接迁移机制；PDB 主要约束符合条件的自愿驱逐，不能阻止所有节点故障、直接删除或发布中断。<a href="#source-deployment">[1]</a><a href="#source-disruptions">[5]</a></p>
+    </div>
+    <div class="card">
+      <h3>网络、权限与独立发布</h3>
+      <ul>
+        <li>复用集群已有 Ingress / 入口能力，按需暴露 API 和桌面网关；Scheduler、Agent Runtime、数据库与宿主控制接口不直接暴露公网。</li>
+        <li>每类服务使用独立身份、最小权限与网络访问范围；Node Runtime 的宿主权限不扩散给 TS 模型进程或普通 API Pod。</li>
+        <li>多副本分散到适当故障域；单节点上的多个 Pod 可以抵抗进程失败，但不能抵抗该节点整体失效。</li>
+        <li>消息和 HTTP 契约需要版本兼容，数据库迁移先兼容新旧副本；共享代码仓库不要求四个服务永远一起发布。</li>
+      </ul>
+    </div>
+
+    <h2>八、起步规模、实施范围与验收</h2>
+    <div class="card">
+      <div class="tablewrap" tabindex="0" role="region" aria-label="开发起步与多副本示例数量表，可横向滚动">
+        <table>
+          <thead><tr><th scope="col">场景</th><th scope="col">业务 Pod 数量</th><th scope="col">解释</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">开发 / 最小联调</th><td class="numeric">1 + 1 + 1 + 1 = 4</td><td>四类服务已经物理拆开，每类暂用一个副本；不是四个服务挤在同一个 Pod。</td></tr>
+            <tr><th scope="row">本机部署数据库与消息系统的开发示例</th><td class="numeric">4 个业务 + 2 个基础设施 = 6</td><td>假设 PostgreSQL 与 NATS 各一个开发实例；不含集群系统、前端、对象存储、用户 VM 等，不作为生产 HA 配置。</td></tr>
+            <tr><th scope="row">第二节的多副本示意</th><td class="numeric">2 + 2 + 3 + 2 = 9</td><td>仅展示各类服务可以独立扩容。正式副本数、资源配额、节点数与 HA 拓扑按压测和可用性要求确定。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>先固定四个物理部署边界，不按每个概念拆一个微服务。</strong>Policy、Memory、Thread、Artifact 等先作为归属明确的领域模块；Router / Ticket / Worker 首版共用 Agent Runtime。只有出现独立伸缩、权限或发布边界的实际需求，再继续拆分。</div>
+    </div>
+    <div class="card">
+      <h3>实现时需要验证的最小闭环</h3>
+      <ol>
+        <li><strong>真实分布：</strong>四个 Deployment 各自有独立 Pod、入口与发布配置；扩容 Agent Runtime 不要求同步扩容或重启 API。</li>
+        <li><strong>异步闭环：</strong>输入经过 API 与 Scheduler 进入 TS Runtime，Worker 提交 Job 后释放长等待；新的用户输入和 Stop 控制仍可及时处理。</li>
+        <li><strong>所有权与恢复：</strong>两个 Runtime 同时竞争一个 Session 时只有一个有效 owner；旧 owner 的迟到写入、输出与执行请求被拒绝。</li>
+        <li><strong>订阅与幂等：</strong>一个 Thread 的多个订阅 Ticket 都能收到获准事件；重复投递与发布重试不会重复启动同一执行。</li>
+        <li><strong>发布不伤及云电脑：</strong>分别重启四类业务 Pod，核对 desktop_id、volume_id 和运行中的 VM；Runtime 恢复先核对原 Job，不盲目重放副作用。</li>
+        <li><strong>故障域：</strong>模拟节点与存储故障，验证持久数据、租约接管和连接恢复，区分业务多副本、集群 HA 与数据耐久性。</li>
+      </ol>
+      <p class="note">当前交付仅为部署设计。尚未创建后端源码、镜像、Kubernetes YAML / Helm Chart，也未执行上述运行时或容量验证。</p>
+    </div>
+    <div class="card sources">
+      <h3>参考与边界依据</h3>
+      <ol>
+        <li id="source-deployment"><a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/">Kubernetes Deployments</a>：副本管理与滚动发布；<a href="https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/">Container probes</a>：启动、就绪与存活检查。</li>
+        <li id="source-service"><a href="https://kubernetes.io/docs/concepts/services-networking/service/">Kubernetes Services</a>：服务入口与后端 Pod 发现；业务 Session 所有权需由应用另行设计。</li>
+        <li id="source-nats"><a href="https://docs.nats.io/concepts/jetstream">NATS JetStream</a>；<a href="https://docs.nats.io/learn/jetstream/pull-consumers">Pull consumers</a>；<a href="https://docs.nats.io/learn/jetstream/retention-policies">Retention policies</a>：持久消息、重投、消费者分工与保留语义。</li>
+        <li id="source-storage"><a href="https://docs.k3s.io/add-ons/storage">K3s Volumes and Storage</a>：默认本地存储及其节点关联；<a href="https://kubernetes.io/docs/concepts/storage/persistent-volumes/">Kubernetes Persistent Volumes</a>：持久卷生命周期与回收策略。</li>
+        <li id="source-disruptions"><a href="https://kubernetes.io/docs/concepts/workloads/pods/disruptions/">Kubernetes Disruptions</a>：PDB 与自愿 / 非自愿中断的适用边界。</li>
+      </ol>
+      <p class="note">本专题记录已讨论确认的服务拆分与建议实施机制。具体 K3s / Kubernetes、PostgreSQL 与 NATS 版本、资源配额、租约算法、消息保留策略和生产 HA 配置，在实施前锁定；未给出容量或零中断承诺。</p>
+    </div>
+  </main>
+</body>
+</html>

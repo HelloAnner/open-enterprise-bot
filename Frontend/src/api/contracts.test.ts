@@ -8,6 +8,12 @@ describe("API contracts", () => {
     expect("messages" in bot).toBe(false);
   });
 
+  it("accepts asynchronous acknowledgement without fabricating bot replies", () => {
+    const result = messageResultSchema.parse({ userMessage: { id: "m1", kind: "text", from: "user", text: "生成报告" }, replies: [], pending: true });
+    expect(result.pending).toBe(true);
+    expect(result.replies).toEqual([]);
+  });
+
   it("rejects malformed server payloads", () => {
     expect(botSchema.safeParse({ id: "broken" }).success).toBe(false);
     expect(messageResultSchema.safeParse({ userMessage: { id: "m1", kind: "unknown" }, replies: [] }).success).toBe(false);

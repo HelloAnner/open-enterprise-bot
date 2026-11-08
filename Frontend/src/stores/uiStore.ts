@@ -16,7 +16,7 @@ interface UiState {
   setTaskPhase: (botId: string, phase: "working" | "thinking") => void;
 }
 
-const requestedBot = window.location.hash.startsWith("#bot=") ? window.location.hash.slice(5) : "get-job";
+const requestedBot = window.location.hash.startsWith("#bot=") ? window.location.hash.slice(5) : "";
 
 export const useUiStore = create<UiState>((set) => ({
   activeBotId: requestedBot,

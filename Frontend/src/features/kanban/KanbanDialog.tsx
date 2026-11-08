@@ -2,7 +2,6 @@ import { useState } from "react";
 import { closestCorners, DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -12,7 +11,7 @@ import { useBoardQuery, useMoveJobMutation } from "@/api/hooks/board";
 
 function JobCard({ job, overlay = false }: { job: JobOpportunity; overlay?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: job.id, disabled: overlay });
-  return <button ref={setNodeRef} className={cn("job-card", isDragging && "dragging", overlay && "drag-overlay")} style={{ transform: CSS.Translate.toString(transform) }} {...listeners} {...attributes} onClick={() => toast(`${job.company} · 已同步最新投递状态`)}><span className="job-company">{job.company}</span><span className="job-title">{job.title}</span><span className="job-meta"><span>{job.meta}</span><span>›</span></span></button>;
+  return <button ref={setNodeRef} className={cn("job-card", isDragging && "dragging", overlay && "drag-overlay")} style={{ transform: CSS.Translate.toString(transform) }} {...listeners} {...attributes} onClick={() => toast(`${job.company} · ${job.title} · ${job.meta}`)}><span className="job-company">{job.company}</span><span className="job-title">{job.title}</span><span className="job-meta"><span>{job.meta}</span><span>›</span></span></button>;
 }
 
 export function KanbanDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -28,8 +27,8 @@ export function KanbanDialog({ open, onOpenChange }: { open: boolean; onOpenChan
     if (event.over) moveJob.mutate({ jobId: String(event.active.id), columnId: String(event.over.id) });
     setActiveJobId(undefined);
   };
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent title="面试机会看板 · 70–80万" className="wide">
-    <div className="board-toolbar"><p>{total} 个机会 · 拖拽卡片可更新状态</p><Button variant="secondary" size="sm" onClick={() => toast("当前显示全部机会")}>全部机会<ChevronDown /></Button></div>
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent title="机会看板" className="wide">
+    <div className="board-toolbar"><p>{total} 个机会 · 拖拽卡片可更新状态</p></div>
     {boardQuery.isLoading ? <div className="board-state">正在同步看板数据…</div> : boardQuery.isError ? <div className="board-state"><p>{boardQuery.error.message}</p><Button variant="secondary" onClick={() => void boardQuery.refetch()}>重新加载</Button></div> : <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveJobId(undefined)}>
       <div className="kanban-board">{columns.map((column) => <BoardColumnView key={column.id} id={column.id} title={column.title} jobs={column.jobs} />)}</div>
       <DragOverlay>{activeJob ? <JobCard job={activeJob} overlay /> : null}</DragOverlay>

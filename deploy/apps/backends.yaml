@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: api-gateway, namespace: eob}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: control-plane, namespace: eob}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: agent-runtime, namespace: eob}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: desktop-gateway, namespace: eob}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api-gateway, namespace: eob}
+spec: {selector: {app: api-gateway}, ports: [{name: http, port: 8080, targetPort: 8080}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: control-plane, namespace: eob}
+spec: {selector: {app: control-plane}, ports: [{name: http, port: 8080, targetPort: 8080}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: agent-runtime, namespace: eob}
+spec: {selector: {app: agent-runtime}, ports: [{name: http, port: 8080, targetPort: 8080}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: desktop-gateway, namespace: eob}
+spec: {selector: {app: desktop-gateway}, ports: [{name: http, port: 8080, targetPort: 8080}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api-gateway, namespace: eob, labels: {tier: backend}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: api-gateway}}
+  template:
+    metadata: {labels: {app: api-gateway, tier: backend}}
+    spec:
+      serviceAccountName: api-gateway
+      containers:
+        - name: api-gateway
+          image: eob/api-gateway:dev
+          ports: [{containerPort: 8080}]
+          envFrom: [{configMapRef: {name: eob-config}}, {secretRef: {name: eob-api-gateway-secret}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: control-plane, namespace: eob, labels: {tier: backend}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: control-plane}}
+  template:
+    metadata: {labels: {app: control-plane, tier: backend}}
+    spec:
+      serviceAccountName: control-plane
+      containers:
+        - name: control-plane
+          image: eob/control-plane:dev
+          ports: [{containerPort: 8080}]
+          envFrom: [{configMapRef: {name: eob-config}}, {secretRef: {name: eob-control-plane-secret}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agent-runtime, namespace: eob, labels: {tier: backend}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: agent-runtime}}
+  template:
+    metadata: {labels: {app: agent-runtime, tier: backend}}
+    spec:
+      serviceAccountName: agent-runtime
+      containers:
+        - name: agent-runtime
+          image: eob/agent-runtime:dev
+          ports: [{containerPort: 8080}]
+          envFrom: [{configMapRef: {name: eob-config}}, {secretRef: {name: eob-agent-runtime-secret}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: desktop-gateway, namespace: eob, labels: {tier: backend}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: desktop-gateway}}
+  template:
+    metadata: {labels: {app: desktop-gateway, tier: backend}}
+    spec:
+      serviceAccountName: desktop-gateway
+      containers:
+        - name: desktop-gateway
+          image: eob/desktop-gateway:dev
+          ports: [{containerPort: 8080}]
+          envFrom: [{configMapRef: {name: eob-config}}, {secretRef: {name: eob-desktop-gateway-secret}}]

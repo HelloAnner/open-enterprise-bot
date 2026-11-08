@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { chatApi } from "@/api/chatApi";
@@ -6,11 +7,20 @@ import type { ChatMessage } from "@/domain/chat/types";
 import { createId, formatBytes } from "@/lib/utils";
 import { useUiStore } from "@/stores/uiStore";
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const temporaryMessage = (message: Omit<ChatMessage, "id">) => ({ ...message, id: `optimistic-${createId()}` });
 
 export function useMessagesQuery(botId: string, enabled = true) {
-  return useQuery({ queryKey: queryKeys.messages(botId), queryFn: ({ signal }) => chatApi.listMessages(botId, signal), enabled });
+  const client = useQueryClient();
+  const receipt = useRef("");
+  const query = useQuery({ queryKey: queryKeys.messages(botId), queryFn: ({ signal }) => chatApi.listMessages(botId, signal), enabled, refetchInterval: 10000 });
+  const latest = query.data?.filter(message => message.from === "bot").at(-1)?.id;
+  useEffect(() => {
+    const key = `${botId}:${latest}`;
+    if (!enabled || !latest || document.visibilityState !== "visible" || receipt.current === key) return;
+    receipt.current = key;
+    void chatApi.markRead(botId, latest).then(() => client.invalidateQueries({queryKey:queryKeys.bots,exact:true})).catch(() => { if(receipt.current === key) receipt.current = ""; });
+  }, [botId, latest, enabled, query.dataUpdatedAt, client]);
+  return query;
 }
 
 function useMessageMutation(botId: string) {
@@ -30,18 +40,18 @@ function useMessageMutation(botId: string) {
     setTyping(botId, false);
     toast.error(error.message);
   };
-  const finish = async (result: { userMessage: ChatMessage; replies: ChatMessage[] }, optimisticId: string) => {
+  const finish = async (result: { userMessage: ChatMessage; replies: ChatMessage[]; pending?: boolean }, optimisticId: string) => {
     setTaskPhase(botId, "thinking");
     queryClient.setQueryData<ChatMessage[]>(key, (messages = []) => messages.map((message) => message.id === optimisticId ? result.userMessage : message));
     for (const reply of result.replies) {
       queryClient.setQueryData<ChatMessage[]>(key, (messages = []) => messages.some((message) => message.id === reply.id) ? messages : [...messages, reply]);
-      if (result.replies.length > 1) await wait(600);
     }
-    setTyping(botId, false);
+    setTyping(botId, Boolean(result.pending));
+    await queryClient.invalidateQueries({ queryKey: ["activity"] });
     await queryClient.invalidateQueries({ queryKey: key });
     await queryClient.invalidateQueries({ queryKey: queryKeys.bots });
   };
-  const run = async (message: ChatMessage, request: () => Promise<{ userMessage: ChatMessage; replies: ChatMessage[] }>) => {
+  const run = async (message: ChatMessage, request: () => Promise<{ userMessage: ChatMessage; replies: ChatMessage[]; pending?: boolean }>) => {
     const context = await begin(message);
     try {
       const result = await request();
@@ -74,7 +84,7 @@ export function useUploadMutation(botId: string) {
       return mutation.run(
         temporaryMessage(isImage ? { kind: "image", from: "user", images: [url] } : { kind: "file", from: "user", name: file.name, size: formatBytes(file.size), url }),
         () => chatApi.uploadFile(botId, file),
-      );
+      ).finally(() => URL.revokeObjectURL(url));
     },
   });
 }
@@ -89,7 +99,8 @@ export function useChoiceMutation(botId: string) {
       try {
         const result = await chatApi.chooseOption(botId, input);
         queryClient.setQueryData<ChatMessage[]>(key, (messages = []) => [...messages.map((message) => message.id === result.choice.id ? result.choice : message), result.userMessage, ...result.replies]);
-        setTyping(botId, false);
+        setTyping(botId, Boolean(result.pending));
+        await queryClient.invalidateQueries({ queryKey: ["activity"] });
         await queryClient.invalidateQueries({ queryKey: key });
         return result;
       } catch (error) {
@@ -128,6 +139,6 @@ export function useDeleteMessageMutation(botId: string) {
       return { previous };
     },
     onError: (error: Error, _, context) => { queryClient.setQueryData(key, context?.previous); toast.error(error.message); },
-    onSuccess: () => toast.success("消息已删除"),
+    onSuccess: () => { toast.success("消息已删除"); void queryClient.invalidateQueries({queryKey:queryKeys.bots,exact:true}); },
   });
 }

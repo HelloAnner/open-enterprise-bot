@@ -10,6 +10,7 @@ export type BotPatch = Partial<Pick<Bot, "name" | "shape" | "color" | "accent" |
 export const chatApi = {
   listBots: (signal?: AbortSignal) => apiClient("/bots", botsSchema, { signal }),
   listMessages: (botId: string, signal?: AbortSignal) => apiClient(`/conversations/${botId}/messages`, messagesSchema, { signal }),
+  markRead: (botId: string, messageId: string) => apiClient(`/conversations/${botId}/read`, z.undefined(), {method:"PATCH",body:JSON.stringify({messageId})}),
   createBot: (input: BotWriteInput) => apiClient("/bots", botSchema, { method: "POST", body: JSON.stringify(input) }),
   updateBot: (id: string, patch: BotPatch) => apiClient(`/bots/${id}`, botSchema, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteBot: (id: string) => apiClient(`/bots/${id}`, z.undefined(), { method: "DELETE" }),

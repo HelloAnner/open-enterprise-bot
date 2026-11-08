@@ -1,0 +1,19 @@
+[Unit]
+Description=Enterprise Bot authenticated compute-node runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/eob/node.env
+EnvironmentFile=/etc/eob/node-secret.env
+ExecStart=/opt/eob/node-runtime
+Restart=on-failure
+RestartSec=3
+# VM processes are separate systemd units, never children owned by this service.
+KillMode=process
+UMask=0077
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

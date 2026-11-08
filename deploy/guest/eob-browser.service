@@ -1,0 +1,16 @@
+[Unit]
+Description=One Chrome instance and one persistent Profile per user
+After=eob-display.service network-online.target
+Requires=eob-display.service
+
+[Service]
+User=bot
+Environment=DISPLAY=:0
+Environment=HOME=/home/bot
+# Browser sandbox stays enabled. Guest kernel must support user namespaces/seccomp.
+ExecStart=/usr/bin/google-chrome-stable --user-data-dir=/data/browser --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --no-first-run --disable-dev-shm-usage about:blank
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

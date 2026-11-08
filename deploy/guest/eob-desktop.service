@@ -1,0 +1,14 @@
+[Unit]
+Description=Shared lightweight window manager
+After=eob-display.service
+Requires=eob-display.service
+
+[Service]
+User=bot
+Environment=DISPLAY=:0
+ExecStart=/usr/bin/openbox
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: Job
+metadata: {name: eob-migrate, namespace: eob}
+spec:
+  backoffLimit: 1
+  template:
+    metadata: {labels: {app: migrate}}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 70, runAsGroup: 70, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command: [/bin/sh, -ec, 'for f in /migrations/*.sql; do psql -v ON_ERROR_STOP=1 -f "$f"; done']
+          env: [{name: PGHOST, value: postgres}, {name: PGUSER, value: postgres}, {name: PGDATABASE, value: eob}]
+          envFrom: [{secretRef: {name: eob-migration-secret}}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 50m, memory: 32Mi}, limits: {cpu: 500m, memory: 128Mi}}
+          volumeMounts: [{name: migrations, mountPath: /migrations, readOnly: true}]
+      volumes: [{name: migrations, configMap: {name: eob-migrations}}]

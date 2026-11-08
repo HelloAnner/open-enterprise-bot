@@ -1,0 +1,26 @@
+{
+  "name": "@enterprise/agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts",
+    "test": "tsx --test src/**/*.test.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "1.2.0",
+    "@earendil-works/pi-ai": "1.2.0",
+    "nats": "2.29.3",
+    "pg": "8.16.3",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.0",
+    "@types/pg": "8.15.5",
+    "tsx": "4.20.6",
+    "typescript": "5.8.3"
+  }
+}

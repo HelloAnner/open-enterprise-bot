@@ -1,0 +1,7 @@
+# Copy to /etc/rancher/k3s/config.yaml on your K3s server after reviewing local requirements.
+write-kubeconfig-mode: '0640'
+secrets-encryption: true
+node-label:
+  - eob.workload=general
+# Keep packaged Traefik and local-path for the single-node development manifests.
+# Do not run Firecracker under a business Deployment, and do not treat local-path as replicated storage.

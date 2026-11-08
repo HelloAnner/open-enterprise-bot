@@ -1,0 +1,19 @@
+[Unit]
+Description=Guest Job executor and authenticated screen endpoints
+After=network-online.target eob-display.service eob-browser.service
+
+[Service]
+User=bot
+EnvironmentFile=/etc/eob/guest.env
+Environment=DISPLAY=:0
+ExecStart=/usr/local/bin/compute-agent
+Restart=always
+RestartSec=2
+# Detached Job runner children survive an Agent restart and persist their own final state.
+KillMode=process
+UMask=0077
+LimitNOFILE=8192
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

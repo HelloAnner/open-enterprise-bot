@@ -32,7 +32,7 @@ export const boardColumnSchema = z.object({
   id: z.string(), title: z.string(), jobs: z.array(z.object({ id: z.string(), company: z.string(), title: z.string(), meta: z.string() })),
 });
 
-export const messageResultSchema = z.object({ userMessage: messageSchema, replies: z.array(messageSchema) });
+export const messageResultSchema = z.object({ userMessage: messageSchema, replies: z.array(messageSchema), pending: z.boolean().optional() });
 export const choiceResultSchema = messageResultSchema.extend({ choice: messageSchema });
 export const botsSchema = z.array(botSchema);
 export const messagesSchema = z.array(messageSchema);

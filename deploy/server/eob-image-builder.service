@@ -1,0 +1,20 @@
+[Unit]
+Description=Open Enterprise Bot isolated image builder (no shared Docker socket or networking changes)
+After=network-online.target
+
+[Service]
+Type=simple
+RuntimeDirectory=eob-image-builder
+ExecStart=/usr/bin/dockerd --config-file "/data/Open Enterprise Bot/.private/daemon.json"
+Restart=on-failure
+RestartSec=5
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=200%
+MemoryLimit=6G
+LimitNOFILE=65536
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

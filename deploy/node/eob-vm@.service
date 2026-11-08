@@ -1,0 +1,17 @@
+[Unit]
+Description=Enterprise Bot Firecracker microVM %i
+After=network-online.target
+# Intentionally no PartOf/BindsTo eob-node-runtime: manager restart must not destroy this VM.
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/eob/node.env
+EnvironmentFile=/etc/eob/vms/%i.env
+ExecStart=/opt/firecracker/jailer --id %i --exec-file ${FIRECRACKER_BIN} --uid ${VM_UID} --gid ${VM_UID} --chroot-base-dir ${JAILER_ROOT} -- --api-sock /run/firecracker.socket --config-file /vm.json
+Restart=no
+KillMode=control-group
+TimeoutStopSec=120
+TasksMax=256
+LimitNOFILE=4096
+UMask=0077
+# Normal power-off goes through Guest CtrlAltDel/flush. systemctl stop is an operator emergency action.

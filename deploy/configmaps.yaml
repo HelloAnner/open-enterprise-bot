@@ -1,0 +1,100 @@
+# All non-secret runtime, infrastructure and MicroVM settings live in ConfigMaps.
+# Passwords, signing keys and model credentials are deliberately kept in Kubernetes Secrets.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: eob-config, namespace: eob}
+data:
+  LISTEN_ADDR: ':8080'
+  PUBLIC_ORIGIN: 'https://bot.local'
+  AUTH_MODE: signed
+  DEV_USER_ID: local-user
+  GATEWAY_URL: 'http://api-gateway:8080'
+  CONTROL_URL: 'http://control-plane:8080'
+  DESKTOP_URL: 'http://desktop-gateway:8080'
+  COMPUTE_NODE_URL: 'http://compute-node.internal:8090' # Set to your private Linux/KVM node, never a business Pod.
+  NATS_URL: 'nats://nats.eob.svc.cluster.local:4222'
+  NATS_USER: eob
+  QUEUE_MAX_MIB: '256'
+  QUEUE_REPLICAS: '1' # Single-node development infrastructure, not HA.
+  LEASE_SECONDS: '30'
+  RUNTIME_CONCURRENCY: '16'
+  MAX_JOBS_PER_USER: '4'
+  ALLOWED_TOOLS: 'write_file,python' # shell requires explicit opt-in on both control plane and Guest.
+  UPLOAD_MAX_MIB: '10'
+  ARTIFACT_MAX_MIB: '10'
+  REQUEST_MAX_MIB: '16'
+  MODEL_BASE_URL: 'https://api.openai.com/v1'
+  MODEL_NAME: 'gpt-4.1-mini'
+  MODEL_TIMEOUT_MS: '60000'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: eob-postgres-config, namespace: eob}
+data:
+  postgres.conf: |
+    listen_addresses = '*'
+    max_connections = 200
+    shared_buffers = 128MB
+    wal_level = replica
+    fsync = on
+    synchronous_commit = on
+    full_page_writes = on
+    log_statement = 'none'
+    password_encryption = scram-sha-256
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: eob-nats-config, namespace: eob}
+data:
+  nats.conf: |
+    port: 4222
+    http_port: 8222
+    authorization { user: $NATS_USER, password: $NATS_PASSWORD }
+    jetstream { store_dir: /data/jetstream, max_file_store: 2GB, max_memory_store: 64MB }
+    max_payload: 16777216
+    # Durable consumer ACK/redelivery and outbox publication are implemented in each service.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: eob-redis-config, namespace: eob}
+data:
+  redis.conf: |
+    bind 0.0.0.0
+    protected-mode yes
+    dir /data
+    appendonly yes
+    appendfsync everysec
+    maxmemory 256mb
+    maxmemory-policy noeviction
+    # Redis owns short desktop input leases, not durable Job or Session facts.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: eob-microvm-config, namespace: eob}
+data:
+  node.env: |
+    LISTEN_ADDR=:8090
+    NODE_STATE_ROOT=/var/lib/eob
+    JAILER_ROOT=/srv/eob/jailer
+    VOLUME_ROOT=/srv/eob/volumes
+    BASE_ROOTFS=/srv/eob/images/guest-v1.ext4
+    GUEST_KERNEL=/srv/eob/images/vmlinux
+    FIRECRACKER_BIN=/opt/firecracker/firecracker
+    JAILER_BIN=/opt/firecracker/jailer
+    PROVISION_COMMAND=/opt/eob/provision.sh
+    DESKTOP_URL=http://desktop-gateway.eob.svc.cluster.local:8080
+    # For a host outside K3s, replace DESKTOP_URL with a reachable private authenticated endpoint.
+    VM_VCPU=2
+    VM_MEMORY_MIB=4096
+    VM_DISK_BYTES=40000000000
+    NODE_VM_LIMIT=32
+    NODE_EGRESS_INTERFACE=eth0
+    SCREEN_WIDTH=1280
+    SCREEN_HEIGHT=720
+    SCREEN_LIMIT=4
+    JOB_TIMEOUT_SECONDS=300
+    ALLOWED_TOOLS=write_file,python
+    ARTIFACT_MAX_MIB=10
+    REQUEST_MAX_MIB=16
+    # Volumes must be on a durable, backed-up filesystem. No automatic cross-node remount/failover.
+    # Firecracker/jailer and kernel must be installed and pinned by the operator before starting this service.
