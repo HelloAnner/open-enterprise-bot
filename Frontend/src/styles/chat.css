@@ -69,8 +69,14 @@
 .relay-meta { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 22px 0 16px; color: #929292; font-size: 12px; }
 .relay-meta .bot-avatar { width: 20px; height: 20px; }
 .relay-meta strong { color: #777; font-weight: 500; }
-.typing-bubble { display: flex; align-items: center; gap: 4px; width: 52px; height: 36px; }
-.typing-bubble i { width: 6px; height: 6px; border-radius: 50%; background: #aaa; }
+.thinking-line { display: flex; align-items: center; height: 32px; margin: 8px 0; color: #999; font-size: 13px; }
+.thinking-phase { display: flex; align-items: center; gap: 9px; height: 32px; }
+.thinking-avatar { display: block; width: 24px; height: 24px; }
+.thinking-avatar .bot-avatar { width: 24px; height: 24px; }
+.thinking-dots { display: flex; align-items: center; justify-content: center; gap: 5px; width: 32px; }
+.thinking-dots i { width: 6px; height: 6px; border-radius: 50%; background: #b0b0b0; }
+.thinking-dots i:nth-child(2) { background: #888; }
+.thinking-dots i:nth-child(3) { background: #555; }
 .scroll-bottom { position: absolute; z-index: 8; bottom: 76px; left: 50%; width: 32px; height: 32px; transform: translateX(-50%); border: 1px solid #ededed; background: #fff; box-shadow: 0 3px 12px #0000000c; color: #666; }
 .scroll-bottom svg { width: 17px; }
 .composer-wrap { position: absolute; z-index: 9; right: 24px; bottom: 16px; left: 24px; display: flex; flex-direction: column; align-items: center; pointer-events: none; }

@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { DropdownContent, DropdownItem, DropdownMenu, DropdownMenuTrigger, DropdownSeparator } from "@/components/ui/menu";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { messageText } from "@/domain/chat/message";
+import type { Bot } from "@/domain/bot/types";
 import type { ChatMessage } from "@/domain/chat/types";
 import { copyText, cn } from "@/lib/utils";
 import { useDeleteMessageMutation, useReactionMutation } from "@/api/hooks/messages";
 import { useUiStore } from "@/stores/uiStore";
 import { MessageBody, RelayMeta } from "./MessageBody";
+import { ThinkingIndicator } from "./ThinkingIndicator";
 
 const cardKinds = ["choice", "secure", "kanban", "email", "images"];
 const reactions = ["👍", "❤️", "😂", "🎉", "🙏", "👀"];
@@ -30,8 +32,8 @@ function MessageItem({ message, botId, onImage, onKanban, onFile }: {
   </motion.article>;
 }
 
-export function MessageList({ botId, messages, thinking, isLoading, isError, error, onRetry, onImage, onKanban, onFile }: {
-  botId: string; messages: ChatMessage[]; thinking: boolean; isLoading: boolean; isError: boolean; error?: Error; onRetry: () => void;
+export function MessageList({ botId, bot, taskPhase, messages, thinking, isLoading, isError, error, onRetry, onImage, onKanban, onFile }: {
+  botId: string; bot: Bot; taskPhase: "working" | "thinking"; messages: ChatMessage[]; thinking: boolean; isLoading: boolean; isError: boolean; error?: Error; onRetry: () => void;
   onImage: (src: string) => void; onKanban: () => void; onFile: (message: ChatMessage) => void;
 }) {
   const scrollRef = useRef<HTMLElement>(null);
@@ -43,7 +45,7 @@ export function MessageList({ botId, messages, thinking, isLoading, isError, err
     const grew = messages.length > previousCount.current;
     previousCount.current = messages.length;
     if (!grew && !thinking) return;
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "auto" });
   }, [messages.length, thinking, isLoading, isError]);
   useEffect(() => {
     const node = scrollRef.current;
@@ -60,7 +62,7 @@ export function MessageList({ botId, messages, thinking, isLoading, isError, err
           if (message.kind === "relay") return <RelayMeta message={message} key={message.id} />;
           return <MessageItem key={message.id} message={message} botId={botId} onImage={onImage} onKanban={onKanban} onFile={onFile} />;
         })}</AnimatePresence>
-        {thinking && <motion.div className="message-row bot" initial={{ opacity: 0 }} animate={{ opacity: 1 }}><div className="message-bubble typing-bubble" aria-label="Bot 正在输入">{[0, 1, 2].map((dot) => <motion.i key={dot} animate={{ y: [0, -3, 0], opacity: [0.45, 1, 0.45] }} transition={{ duration: 1.1, delay: dot * 0.14, repeat: Infinity }} />)}</div></motion.div>}
+        {thinking && <ThinkingIndicator bot={bot} phase={taskPhase} />}
       </>}
     </div></section>
     {showBottom && !isLoading && <Button variant="ghost" size="icon" className="scroll-bottom" aria-label="滚动到最新消息" onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })}><ArrowDown /></Button>}

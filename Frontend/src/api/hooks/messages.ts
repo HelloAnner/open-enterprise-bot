@@ -16,6 +16,7 @@ export function useMessagesQuery(botId: string, enabled = true) {
 function useMessageMutation(botId: string) {
   const queryClient = useQueryClient();
   const setTyping = useUiStore((state) => state.setTyping);
+  const setTaskPhase = useUiStore((state) => state.setTaskPhase);
   const key = queryKeys.messages(botId);
   const begin = async (message: ChatMessage) => {
     await queryClient.cancelQueries({ queryKey: key });
@@ -30,10 +31,11 @@ function useMessageMutation(botId: string) {
     toast.error(error.message);
   };
   const finish = async (result: { userMessage: ChatMessage; replies: ChatMessage[] }, optimisticId: string) => {
+    setTaskPhase(botId, "thinking");
     queryClient.setQueryData<ChatMessage[]>(key, (messages = []) => messages.map((message) => message.id === optimisticId ? result.userMessage : message));
     for (const reply of result.replies) {
       queryClient.setQueryData<ChatMessage[]>(key, (messages = []) => messages.some((message) => message.id === reply.id) ? messages : [...messages, reply]);
-      if (result.replies.length > 1) await wait(360);
+      if (result.replies.length > 1) await wait(600);
     }
     setTyping(botId, false);
     await queryClient.invalidateQueries({ queryKey: key });
