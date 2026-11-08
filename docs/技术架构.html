@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="企业级 Bot 后端的概念架构：单用户 microVM、用户级 Router Pool、异步 ReAct 与全双工事件通信、Thread/Ticket 订阅以及 Worker 管理后台 Job。">
+  <title>企业级 Bot · 技术架构</title>
+  <style>
+    /* One-pager compact engineering-report theme; unused components omitted. */
+    :root {
+      color-scheme: light;
+      --bg: #f7f7f5;
+      --card: #ffffff;
+      --ink: #1f2328;
+      --muted: #6b7280;
+      --line: #d0d4da;
+      --gray-bg: #f3f4f6;
+      --gray-line: #9ca3af;
+      --new: #1d4ed8;
+      --new-bg: #eff6ff;
+      --plat: #047857;
+      --plat-bg: #ecfdf5;
+      --risk: #b91c1c;
+      --risk-bg: #fef2f2;
+      --summary-bg: #111827;
+      --summary-ink: #f9fafb;
+      --radius: 10px;
+      --font-sans: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-mono: ui-monospace, Menlo, Consolas, monospace;
+      --content-width: 1280px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.6 var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    :focus-visible { outline: 2px solid var(--new); outline-offset: 3px; }
+    .sheet { max-width: var(--content-width); margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 22px; margin: 0 0 12px; }
+    h2 { font-size: 18px; margin: 40px 0 10px; }
+    h3 { font-size: 15px; margin: 16px 0 8px; }
+    p { margin: 0 0 1em; }
+    p:last-child { margin-bottom: 0; }
+    ul, ol { margin: 0; padding-left: 20px; }
+    li { margin: 4px 0; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .card + .card, .card + .grid2, .grid2 + .card { margin-top: 14px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .grid2 > .card { margin: 0; }
+    .grid2 h3 { margin-top: 0; }
+    .summary { background: var(--summary-bg); color: var(--summary-ink); padding: 20px 24px; }
+    .summary strong { color: var(--card); }
+    code {
+      font: 12.5px var(--font-mono);
+      background: var(--gray-bg);
+      padding: 1px 4px;
+      border-radius: 4px;
+      overflow-wrap: anywhere;
+    }
+    .note { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+    .note code { font-size: 11.5px; }
+    .callout {
+      margin: 12px 0 0;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--new);
+      border-radius: 8px;
+      background: var(--new-bg);
+      font-size: 13px;
+    }
+    .callout.error { border-color: var(--risk); background: var(--risk-bg); }
+    .tablewrap { max-width: 100%; overflow-x: auto; }
+    table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13.5px; }
+    caption { text-align: left; color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { background: var(--gray-bg); font-weight: 600; }
+    tbody tr:last-child > * { border-bottom: 0; }
+    tbody th { background: var(--card); }
+    .diagram-scroll { max-width: 100%; overflow-x: auto; }
+    .diagram-scroll svg { min-width: 960px; }
+    svg.diagram { display: block; width: 100%; height: auto; }
+    svg text { font-family: var(--font-sans); fill: var(--ink); }
+    svg .box, svg .box-gray, svg .box-new, svg .box-plat { stroke-width: 1.5; }
+    svg .box { fill: var(--card); stroke: var(--gray-line); }
+    svg .box-gray { fill: var(--gray-bg); stroke: var(--gray-line); }
+    svg .box-new { fill: var(--new-bg); stroke: var(--new); }
+    svg .box-plat { fill: var(--plat-bg); stroke: var(--plat); }
+    svg .t { font-size: 14px; font-weight: 600; }
+    svg .tl { font-size: 13px; font-weight: 600; fill: var(--muted); }
+    svg .m { font-size: 13px; }
+    svg .d { font-size: 12px; fill: var(--muted); }
+    svg .el { font-size: 11.5px; fill: var(--muted); }
+    svg .mono { font-family: var(--font-mono); }
+    svg .c-new { fill: var(--new); }
+    svg .c-plat { fill: var(--plat); }
+    svg .edge-new { fill: none; stroke: var(--new); stroke-width: 1.5; }
+    svg .edge-plat { fill: none; stroke: var(--plat); stroke-width: 1.5; }
+    svg .return { stroke-dasharray: 5 4; }
+    svg .lifeline { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 4; }
+    svg .band { fill: var(--gray-bg); }
+    svg .band-plat { fill: var(--plat-bg); }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; color: var(--muted); font-size: 12.5px; }
+    .legend span::before {
+      content: "";
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      margin-right: 6px;
+      vertical-align: -1px;
+      border: 1.5px solid var(--c, var(--gray-line));
+      background: var(--b, var(--gray-bg));
+    }
+    .legend span.ln::before {
+      width: 22px;
+      height: 0;
+      border: 0;
+      border-top: 2px solid var(--c, var(--gray-line));
+      border-radius: 0;
+      background: none;
+      vertical-align: 3px;
+    }
+    .legend span.ln.return::before { border-top-style: dashed; }
+    @media (max-width: 760px) {
+      .sheet { padding: 20px 12px 48px; }
+      h1 { font-size: 19px; }
+      h2 { font-size: 16px; margin-top: 28px; }
+      .grid2 { grid-template-columns: 1fr; }
+      .summary { padding: 18px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+    @media print {
+      body { background: var(--card); font-size: 9.5pt; }
+      .sheet { max-width: none; padding: 0; }
+      h1 { font-size: 15pt; }
+      h2 { font-size: 11.5pt; margin-top: 18px; break-after: avoid; }
+      h3 { break-after: avoid; }
+      .card { padding: 10px 12px; }
+      .summary { background: var(--gray-bg); color: var(--ink); }
+      .summary strong { color: var(--ink); }
+      .grid2 { grid-template-columns: 1fr; }
+      table { min-width: 0; font-size: 8.5pt; }
+      th, td { padding: 5px 7px; }
+      tr, .card, .callout { break-inside: avoid; }
+      thead { display: table-header-group; }
+      .tablewrap, .diagram-scroll { overflow: visible; }
+      .diagram-scroll svg { min-width: 0; }
+      @page { size: A4; margin: 14mm; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet" id="content">
+    <h1>企业级 Bot 技术架构</h1>
+
+    <h2>一、目标与范围</h2>
+    <div class="card summary">
+      <p><strong>对外是可持续收发消息的 Bot 对话，对内是异步推进的任务与后台执行。</strong>每位用户由一个独立 Router 统一协调，同一用户的多个 Bot 共用该实例。长任务交给 Ticket 和 Worker，由 Job 在后台实际执行；用户不必等任务结束才能继续发送消息、切换 Bot 或发出控制指令。</p>
+    </div>
+    <div class="card">
+      <p>本稿固定后端的<strong>概念、归属、事件流和安全边界</strong>。每位用户拥有一个 microVM；多个具有独立身份的 Bot 在其中共享运行环境，同时保留各自的会话、长期记忆与屏幕。Router Pool 管理用户级 Router 实例，不在不同用户间共享提示词或会话状态。</p>
+      <p>这里的 <strong>ReAct</strong> 指 Agent 的推理与行动循环，不是前端 React 框架。“异步 ReAct”意味着推理、消息收发、控制与后台执行解耦，而不是把整个循环包装成一次必须等待完成的调用。</p>
+      <p>Grok bot 与 DeepSeek Super Agent 仅作为设计理念的讨论参照，本阶段不合并两者的完整机制。当前聚焦分层、事件订阅、异步执行和隔离边界，不引入额外的自治层级。</p>
+      <p class="note">当前为概念设计，不代表已有实现。Event Bus 等名称表达逻辑职责；数据库、消息中间件、通信协议、模型框架、microVM 产品和部署拓扑均未选型。下文标识、事件名及目录均为示意。</p>
+    </div>
+
+    <h2>二、总体架构</h2>
+    <div class="card">
+      <div class="diagram-scroll" tabindex="0" role="region" aria-label="总体架构图，可横向滚动">
+        <svg class="diagram" viewBox="0 0 1160 840" role="img" aria-labelledby="arch-title arch-desc">
+          <title id="arch-title">渠道事件、用户级 Router 与后台 Job 的分层架构</title>
+          <desc id="arch-desc">Trigger 经 Channel Gateway 接入并序列化为 Events，通过 Event Bus 到消息中转 Router Dispatch。中转层执行 Policy、Thread 归并与订阅匹配，将首次事件送往 Router Pool 中对应用户的 Router，已有订阅事件可直达 Ticket。Router 创建 Ticket，Ticket 派生 Worker，Worker 通过 Start、Status、Stop 控制后台 Job。Job 事件返回 Worker，产物经 Ticket 汇总，由用户 Router 统一交付。</desc>
+          <defs>
+            <marker id="arch-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/></marker>
+            <marker id="arch-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#047857"/></marker>
+          </defs>
+          <text class="tl" x="12" y="49">渠道接入</text>
+          <text class="tl" x="12" y="185">事件中转</text>
+          <text class="tl" x="12" y="329">对话统筹</text>
+          <text class="tl" x="12" y="473">任务协作</text>
+          <text class="tl" x="12" y="681">后台执行</text>
+          <text class="tl" x="12" y="795">产物交付</text>
+
+          <rect class="box-gray" x="116" y="20" width="220" height="84" rx="10"/>
+          <text class="t" x="132" y="46">Channel Gateway</text>
+          <text class="d" x="132" y="69">Trigger · Web / 飞书 / 企业微信</text>
+          <text class="d" x="132" y="89">接收渠道输入，也负责渠道发送</text>
+          <path class="edge-new" d="M336,62 H382" marker-end="url(#arch-blue)"/>
+          <rect class="box-gray" x="382" y="20" width="220" height="84" rx="10"/>
+          <text class="t" x="398" y="46">Events · 统一事件</text>
+          <text class="d" x="398" y="69">序列化 / 规范化 / 保留来源</text>
+          <text class="d" x="398" y="89">区分消息、输出、控制与执行</text>
+          <path class="edge-new" d="M602,62 H648" marker-end="url(#arch-blue)"/>
+          <rect class="box-plat" x="648" y="20" width="248" height="84" rx="10"/>
+          <text class="t c-plat" x="664" y="46">Event Bus · 异步传递</text>
+          <text class="d" x="664" y="69">接入、模型输出与 Job 事件并行</text>
+          <text class="d" x="664" y="89">传递事件，不承载 Agent 推理</text>
+          <path class="edge-new" d="M772,104 V156" marker-end="url(#arch-blue)"/>
+
+          <rect class="box-plat" x="116" y="156" width="780" height="84" rx="10"/>
+          <text class="t c-plat" x="132" y="183">Router Dispatch · 消息中转，不是共享的主 Agent</text>
+          <text class="d" x="132" y="206">Policy 授权过滤 / Thread 连续事件归并 / Subscription 匹配 / 按 user_id 定向分派</text>
+          <text class="d" x="132" y="226">首次事件与人的消息交用户 Router；已有授权订阅可直达 Ticket，输出事件按目标发送</text>
+          <path class="edge-new" d="M300,240 V300" marker-end="url(#arch-blue)"/>
+          <text class="el c-new" x="312" y="277">选择对应用户实例</text>
+          <path class="edge-plat" d="M896,198 H924 V482 H896" marker-end="url(#arch-green)"/>
+          <text class="el c-plat" x="812" y="281">订阅直达 Ticket</text>
+
+          <rect class="box-new" x="116" y="300" width="780" height="80" rx="10"/>
+          <text class="t c-new" x="132" y="327">Router Pool · 每用户一个独立 Router / Super Harness</text>
+          <text class="d" x="132" y="350">Router U1、Router U2 … 提示词与状态分别归属；同一用户的多个 Bot 共用其 Router</text>
+          <text class="d" x="132" y="369">Main Session 做短回合、统一沟通与任务协调；不等待后台 Job 才接收下一条消息</text>
+          <path class="edge-new" d="M300,380 V444 M712,380 V444" marker-end="url(#arch-blue)"/>
+          <text class="el c-new" x="312" y="420">用户 Router 创建 / 协调</text>
+          <text class="el c-new" x="724" y="420">创建 / 协调</text>
+
+          <rect class="box-new" x="116" y="444" width="368" height="160" rx="10"/>
+          <text class="t" x="132" y="470">Ticket 01 · 独立 Work Session</text>
+          <text class="d" x="132" y="493">任务目标 / 上下文 / 工作根目录</text>
+          <rect class="box" x="132" y="512" width="152" height="72" rx="8"/>
+          <text class="t" x="148" y="539">Worker 01</text>
+          <text class="d" x="148" y="563">独立 Session / 目录</text>
+          <rect class="box" x="300" y="512" width="168" height="72" rx="8"/>
+          <text class="t" x="316" y="539">Worker 02</text>
+          <text class="d" x="316" y="563">独立 Session / 目录</text>
+          <rect class="box-new" x="528" y="444" width="368" height="160" rx="10"/>
+          <text class="t" x="544" y="470">Ticket 02 · 独立 Work Session</text>
+          <text class="d" x="544" y="493">可订阅一个或多个 Thread</text>
+          <rect class="box" x="544" y="512" width="336" height="72" rx="8"/>
+          <text class="t" x="560" y="539">Worker 03 / Sub Agent</text>
+          <text class="d" x="560" y="563">管理 Job，感知新消息、进度与停止事件</text>
+
+          <path class="edge-new" d="M208,584 V626 H712 V584 M384,584 V626"/>
+          <path class="edge-new" d="M506,626 V652" marker-end="url(#arch-blue)"/>
+          <rect class="box-plat" x="116" y="652" width="780" height="72" rx="10"/>
+          <text class="t c-plat" x="132" y="678">Job J1 / J2 / … · 后台实际执行</text>
+          <text class="d" x="132" y="701">Worker 使用 Start / Status / Stop 控制；Job 的进度、完成与失败事件回到所属 Worker</text>
+          <path class="edge-new" d="M506,724 V768" marker-end="url(#arch-blue)"/>
+          <text class="el c-new" x="520" y="752">产物经 Worker / Ticket 汇总，结果回到用户 Router</text>
+          <rect class="box-gray" x="116" y="768" width="780" height="56" rx="10"/>
+          <text class="t" x="132" y="792">Artifact · 可交付产物</text>
+          <text class="d" x="132" y="813">归属 Ticket，关联 Worker / Job 来源，由 Router 按目标 Bot 与会话统一呈现</text>
+
+          <rect class="box-plat" x="960" y="20" width="184" height="804" rx="10"/>
+          <text class="t c-plat" x="976" y="47">横切能力</text>
+          <text class="d" x="976" y="70">贯穿入口与执行边界</text>
+          <rect class="box" x="976" y="94" width="152" height="88" rx="8"/>
+          <text class="t" x="992" y="120">授权与审计</text>
+          <text class="d" x="992" y="143">事件 / 工具 / Job</text>
+          <text class="d" x="992" y="164">订阅不能绕过授权</text>
+          <rect class="box" x="976" y="204" width="152" height="88" rx="8"/>
+          <text class="t" x="992" y="230">Vault · 密码箱</text>
+          <text class="d" x="992" y="253">按授权引用凭据</text>
+          <text class="d" x="992" y="274">不向上下文暴露明文</text>
+          <rect class="box" x="976" y="314" width="152" height="88" rx="8"/>
+          <text class="t" x="992" y="340">Security Form</text>
+          <text class="d" x="992" y="363">敏感信息受控提交</text>
+          <text class="d" x="992" y="384">结果以事件恢复任务</text>
+          <text class="d" x="976" y="455">这些是平台能力，</text>
+          <text class="d" x="976" y="477">不是额外的 Agent 层。</text>
+          <text class="d" x="976" y="531">接入与输出可并行，</text>
+          <text class="d" x="976" y="553">后台执行不占满对话。</text>
+          <text class="d" x="976" y="619">逻辑实例不等于进程；</text>
+          <text class="d" x="976" y="641">部署位置尚未确定。</text>
+        </svg>
+      </div>
+      <div class="legend" aria-label="图例">
+        <span style="--c:var(--new);--b:var(--new-bg)">用户级编排 / 任务协作</span>
+        <span style="--c:var(--plat);--b:var(--plat-bg)">事件传递 / 平台与后台执行能力</span>
+        <span>渠道、事件结构与产物</span>
+      </div>
+      <p class="note">接入链路为 Channel Gateway、Events、Event Bus、Router Dispatch、Router Pool 中的用户 Router；任务层级为 Ticket、Worker、Job。图展示逻辑分层，不表示每个组件必须独立部署；双向消息与控制时序见第七节。</p>
+    </div>
+
+    <h2>三、核心概念与会话分层</h2>
+    <div class="card">
+      <div class="tablewrap" tabindex="0" role="region" aria-label="核心概念表，可横向滚动">
+        <table>
+          <thead><tr><th scope="col">概念</th><th scope="col">职责与归属</th><th scope="col">必须区分的边界</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Bot</th><td>用户拥有的独立身份，具有独立会话、长期记忆与屏幕。</td><td>同一用户的多个 Bot 共用一个 microVM 和一个用户 Router，但不合并 Bot 身份。</td></tr>
+            <tr><th scope="row">Trigger / Channel Gateway</th><td>Trigger 表示触发入口；Gateway 适配渠道输入、输出并将输入序列化为 Events。</td><td>接入适配不承载 Agent 推理；事件序列化不等于让所有任务串行执行。</td></tr>
+            <tr><th scope="row">Event Bus</th><td>异步传递用户输入、模型输出、控制及后台执行事件。</td><td>事件传递与模型调用解耦；不是每种事件都需要一次 Router 推理。</td></tr>
+            <tr><th scope="row">Policy</th><td>对事件来源、发起者、目标用户 / Bot 和可用权限进行授权过滤。</td><td>是否允许处理、是否需要回复、允许执行什么，是不同判断；订阅和 Job 控制也受约束。</td></tr>
+            <tr><th scope="row">Router Dispatch</th><td>消息中转职责：校验路由范围，结合 Thread 与订阅，将事件送到对应接收方。</td><td>是确定性分派，不是一个供所有用户共享提示词的 Router Agent。</td></tr>
+            <tr><th scope="row">Router Pool</th><td>管理按用户隔离的 Router 实例集合。</td><td>一个用户对应一个逻辑 Router；Pool 不是随机借出一个没有用户归属的会话。</td></tr>
+            <tr><th scope="row">Router</th><td>用户范围内的 Super Harness / Main Session，统筹该用户的多个 Bot、任务与对人沟通。</td><td>不同用户有独立实例与提示词；同一用户的 Bot 不各自创建 Router。</td></tr>
+            <tr><th scope="row">Thread</th><td>连续事件的归并载体，保留同一过程中的事件序列。</td><td>不是单个 Ticket 或模型 Session；与 Ticket 通过多对多订阅关联。</td></tr>
+            <tr><th scope="row">Ticket</th><td>一个具体子任务的执行单元，拥有独立 Work Session、上下文和工作目录。</td><td>由用户 Router 创建，可订阅多个 Thread；负责任务，不直接占住整段用户对话。</td></tr>
+            <tr><th scope="row">Worker</th><td>Ticket 下属的执行协调者，可承载 Sub Agent，拥有独立 Session 与目录。</td><td>通过异步操作管理 Job，感知进度和变更；不把后台 Job 当成一次阻塞工具调用。</td></tr>
+            <tr><th scope="row">Job</th><td>Worker 下属、实际在后台执行具体操作的运行单元。</td><td>有独立 job_id 和运行状态，不是新的 Bot、Ticket 或 Agent Session。</td></tr>
+            <tr><th scope="row">Artifact</th><td>执行形成的可交付产物，例如报告、文件或结构化结果。</td><td>归属 Ticket，关联 Worker / Job 来源；不等于进度消息或执行日志。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>三层会话，一层后台执行：</strong>用户 Router 的 Main Session 负责协调对话；Ticket 的 Work Session 负责一个任务；Worker Session 负责具体步骤与 Job 控制；Job 负责实际运行。Ticket 使用任务根目录，Worker 使用独立子目录；Job 不因此新增一层模型会话。</div>
+      <p class="note">本稿将“唯一 Router”的范围明确为用户，而非整个系统。用户级协调状态与 Bot 会话 / 长期记忆分开管理；复用 Router 实例不等于混用 Bot 上下文，也不要求每用户独占一个操作系统进程。</p>
+    </div>
+
+    <h2>四、单用户 microVM 与多 Bot 共享边界</h2>
+    <div class="card">
+      <div class="diagram-scroll" tabindex="0" role="region" aria-label="microVM 共享与独立边界图，可横向滚动">
+        <svg class="diagram" viewBox="0 0 1160 424" role="img" aria-labelledby="vm-title vm-desc">
+          <title id="vm-title">一个用户一个 microVM，多个 Bot 共享浏览器但拥有独立屏幕</title>
+          <desc id="vm-desc">用户 U1 的唯一 microVM 内有 Bot A 和 Bot B，各自保留身份、会话、长期记忆与独立屏幕。两个 Bot 都访问同一用户共享的浏览器、登录态和系统资源。用户 U2 拥有另外的 microVM，不与 U1 共享运行环境。屏幕独立不代表浏览器身份隔离。</desc>
+          <defs><marker id="vm-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#047857"/></marker></defs>
+          <rect class="box-gray" x="16" y="16" width="884" height="392" rx="10"/>
+          <text class="t" x="34" y="44">用户 U1 · 唯一 microVM</text>
+          <text class="d" x="34" y="67">共享用户运行环境；Bot 的逻辑状态分别归属</text>
+
+          <rect class="box-new" x="34" y="88" width="412" height="188" rx="10"/>
+          <text class="t c-new" x="50" y="114">Bot A · 独立身份</text>
+          <rect class="box" x="50" y="134" width="188" height="54" rx="8"/>
+          <text class="m" x="66" y="157">Identity / 会话</text>
+          <text class="d" x="66" y="176">仅属于 Bot A 的上下文</text>
+          <rect class="box" x="254" y="134" width="176" height="54" rx="8"/>
+          <text class="m" x="270" y="157">长期记忆 A</text>
+          <text class="d" x="270" y="176">独立归属与访问范围</text>
+          <rect class="box" x="50" y="204" width="380" height="54" rx="8"/>
+          <text class="m" x="66" y="227">Screen A · Bot A 的独立屏幕</text>
+          <text class="d" x="66" y="246">独立显示 / 操作视图，不等于独立浏览器</text>
+
+          <rect class="box-new" x="464" y="88" width="412" height="188" rx="10"/>
+          <text class="t c-new" x="480" y="114">Bot B · 独立身份</text>
+          <rect class="box" x="480" y="134" width="188" height="54" rx="8"/>
+          <text class="m" x="496" y="157">Identity / 会话</text>
+          <text class="d" x="496" y="176">仅属于 Bot B 的上下文</text>
+          <rect class="box" x="684" y="134" width="176" height="54" rx="8"/>
+          <text class="m" x="700" y="157">长期记忆 B</text>
+          <text class="d" x="700" y="176">不自动与 Bot A 合并</text>
+          <rect class="box" x="480" y="204" width="380" height="54" rx="8"/>
+          <text class="m" x="496" y="227">Screen B · Bot B 的独立屏幕</text>
+          <text class="d" x="496" y="246">独立显示 / 操作视图，不等于独立浏览器</text>
+
+          <path class="edge-plat" d="M240,258 V314" marker-end="url(#vm-green)"/>
+          <path class="edge-plat" d="M670,258 V314" marker-end="url(#vm-green)"/>
+          <text class="el c-plat" x="252" y="300">共同访问</text>
+          <text class="el c-plat" x="682" y="300">共同访问</text>
+          <rect class="box-plat" x="34" y="314" width="842" height="78" rx="10"/>
+          <text class="t c-plat" x="50" y="340">用户级共享浏览器与运行时</text>
+          <text class="d" x="50" y="362">浏览器环境 / 登录态 / 系统资源共享；会话、长期记忆与工作目录按各自归属管理</text>
+          <text class="d" x="50" y="382">microVM 是用户级运行隔离边界，不按 Bot 或 Worker 再创建一台 microVM</text>
+
+          <rect class="box-gray" x="944" y="16" width="200" height="392" rx="10"/>
+          <text class="t" x="960" y="44">用户 U2</text>
+          <rect class="box" x="960" y="88" width="168" height="100" rx="8"/>
+          <text class="t" x="976" y="117">另一 microVM</text>
+          <text class="d" x="976" y="143">独立的用户运行环境</text>
+          <text class="d" x="976" y="165">不与 U1 共享浏览器</text>
+          <text class="m" x="960" y="234">用户之间隔离</text>
+          <text class="d" x="960" y="258">VM / 浏览器 / 屏幕</text>
+          <text class="d" x="960" y="302">一个用户一个环境，</text>
+          <text class="d" x="960" y="324">不是一个 Bot 一台 VM。</text>
+        </svg>
+      </div>
+      <div class="legend" aria-label="图例">
+        <span style="--c:var(--new);--b:var(--new-bg)">Bot 独立逻辑状态</span>
+        <span style="--c:var(--plat);--b:var(--plat-bg)">同一用户内共享的运行能力</span>
+        <span>用户级 microVM 边界</span>
+      </div>
+      <p class="note">屏幕独立是交互视图的独立，不是浏览器账户或凭据的隔离。共享浏览器上的登录态变更、窗口操作与 Job 资源竞争需要协调。microVM 与 Router 都有用户归属，但不预设 Router 必须部署在该 microVM 内；屏幕映射与运行时部署方式尚未确定。</p>
+      <div class="callout error"><strong>不要把逻辑隔离写成安全沙箱。</strong>不同目录和 Session 可以区分任务状态，但不能独自阻止同一 VM 内的不可信代码越权。若开放任意代码执行，仍需明确进程权限、工具授权和资源访问限制。</div>
+    </div>
+
+    <h2>五、Thread 与 Ticket 的事件路由</h2>
+    <div class="card">
+      <p><strong>Thread 记录连续发生了什么，Ticket 负责推进某一件事。</strong>两者通过订阅建立多对多关系：一个 Thread 可被多个 Ticket 订阅，一个 Ticket 也可同时关注多个 Thread。订阅表达事件兴趣，不赋予额外权限。</p>
+      <div class="diagram-scroll" tabindex="0" role="region" aria-label="Thread 与 Ticket 多对多订阅图，可横向滚动">
+        <svg class="diagram" viewBox="0 0 1160 336" role="img" aria-labelledby="sub-title sub-desc">
+          <title id="sub-title">Thread 与 Ticket 的多对多订阅</title>
+          <desc id="sub-desc">Thread 01 被 Ticket 01 和 Ticket 02 订阅，Thread 02 也被 Ticket 02 订阅。Router Dispatch 将通过授权校验的后续事件按订阅直接投递给 Ticket，不需要用户 Router 重新创建任务。Ticket 将进度、决策请求和产物汇总给同一用户的 Router，统一与人沟通。</desc>
+          <defs>
+            <marker id="sub-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#047857"/></marker>
+            <marker id="sub-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/></marker>
+          </defs>
+          <text class="tl" x="24" y="25">已通过 Policy 的后续事件</text>
+          <text class="tl" x="680" y="25">直接唤醒工作会话</text>
+          <rect class="box-gray" x="24" y="56" width="216" height="84" rx="10"/>
+          <text class="t" x="40" y="84">Thread 01</text>
+          <text class="d" x="40" y="108">连续事件 e1 / e2 / e3</text>
+          <rect class="box-gray" x="24" y="230" width="216" height="84" rx="10"/>
+          <text class="t" x="40" y="258">Thread 02</text>
+          <text class="d" x="40" y="282">连续事件 e4 / e5</text>
+          <path class="edge-plat" d="M240,98 H320 M240,272 H320" marker-end="url(#sub-green)"/>
+
+          <rect class="box-plat" x="320" y="56" width="280" height="258" rx="10"/>
+          <text class="t c-plat" x="336" y="83">Thread × Ticket 订阅关系</text>
+          <text class="d" x="336" y="106">多对多 · 校验授权后按关系投递</text>
+          <rect class="box" x="336" y="126" width="248" height="36" rx="6"/>
+          <text class="m mono" x="352" y="149">Thread 01 / Ticket 01</text>
+          <rect class="box" x="336" y="172" width="248" height="36" rx="6"/>
+          <text class="m mono" x="352" y="195">Thread 01 / Ticket 02</text>
+          <rect class="box" x="336" y="218" width="248" height="36" rx="6"/>
+          <text class="m mono" x="352" y="241">Thread 02 / Ticket 02</text>
+          <text class="d" x="336" y="286">退订或授权失效后停止投递</text>
+          <path class="edge-plat" d="M600,98 H680 M600,272 H680" marker-end="url(#sub-green)"/>
+          <text class="el c-plat" x="620" y="87">直达</text>
+          <text class="el c-plat" x="620" y="261">直达</text>
+
+          <rect class="box-new" x="680" y="56" width="240" height="84" rx="10"/>
+          <text class="t" x="696" y="84">Ticket 01</text>
+          <text class="d" x="696" y="108">消费 Thread 01 的匹配事件</text>
+          <rect class="box-new" x="680" y="230" width="240" height="84" rx="10"/>
+          <text class="t" x="696" y="258">Ticket 02</text>
+          <text class="d" x="696" y="282">消费 Thread 01 与 02 的匹配事件</text>
+          <path class="edge-new" d="M920,98 H968 M920,272 H968" marker-end="url(#sub-blue)"/>
+          <text class="el c-new" x="928" y="87">汇总</text>
+          <text class="el c-new" x="928" y="261">汇总</text>
+          <rect class="box-new" x="968" y="56" width="168" height="258" rx="10"/>
+          <text class="t c-new" x="984" y="84">用户 Router U1</text>
+          <text class="m" x="984" y="112">统一对人沟通</text>
+          <text class="d" x="984" y="154">接收进度与产物</text>
+          <text class="d" x="984" y="176">处理决策与冲突</text>
+          <text class="d" x="984" y="218">不参与每轮执行</text>
+          <text class="d" x="984" y="240">不重复创建任务</text>
+          <text class="d" x="984" y="284">人的消息仍由它统筹</text>
+        </svg>
+      </div>
+      <div class="legend" aria-label="图例">
+        <span>Thread 事件流</span>
+        <span style="--c:var(--plat);--b:var(--plat-bg)">授权后的订阅投递</span>
+        <span style="--c:var(--new);--b:var(--new-bg)">任务执行与对话统筹</span>
+      </div>
+      <p class="note">订阅投递由 Event Bus 与 Router Dispatch 承载，直接唤醒 Ticket，不要求用户 Router 每次都运行一轮模型推理。首次事件尚无订阅，先交该用户的 Router；图中只展开后续事件的订阅路径。</p>
+    </div>
+    <div class="card">
+      <div class="tablewrap" tabindex="0" role="region" aria-label="事件路由规则表，可横向滚动">
+        <table>
+          <thead><tr><th scope="col">事件情形</th><th scope="col">谁处理</th><th scope="col">对外行为</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">首次触发 / 没有匹配订阅</th><td>中转层经 Policy 放行后，交 Router Pool 中对应用户的实例；需要长任务时创建 Ticket，并由 Ticket 建立订阅。</td><td>用户 Router 决定是否回复，通过目标 Bot / 会话返回。</td></tr>
+            <tr><th scope="row">后续事件 / 已有匹配订阅</th><td>中转层按订阅直接交给相关 Ticket，推进既有任务；不要求用户 Router 逐条重新分派。</td><td>Ticket 汇报状态与结果，Router 按需整理，不必逐事件打扰用户。</td></tr>
+            <tr><th scope="row">人的新消息 / 即使已有订阅</th><td>仍交用户 Router 理解意图；相关 Ticket 可同时消费获准事件，再将变更送达 Worker，而不等待当前 Job 完成。</td><td>共享同一 Router，但按 Bot 身份和来源会话分别回应。</td></tr>
+            <tr><th scope="row">Job 进度 / 完成 / 失败 / 停止</th><td>Job 事件按所属关系送达 Worker，经 Ticket 汇总；需要决策、授权或交付时再交用户 Router。</td><td>后台执行不直接向人发言，也不把每条日志都转成一次 Router 推理。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>旁路的是重复编排，不是人机对话。</strong>同一事件可能既需要 Router 判断人的意图，也需要已有 Ticket 继续工作；Router 不应仅因再次收到事件就重复创建相同任务。</div>
+    </div>
+
+    <h2>六、Router Pool 与用户级统筹</h2>
+    <div class="card">
+      <p><strong>每位用户一个独立 Router，同一用户的多个 Bot 共用该实例。</strong>不同用户可以有不同提示词、配置与 Main Session 状态；用户在 Bot A 等回复时，可以继续与 Bot B 交互，而不是为每个 Bot 分配一个互不协作的 Router。</p>
+      <div class="diagram-scroll" tabindex="0" role="region" aria-label="Router Pool 用户级实例图，可横向滚动">
+        <svg class="diagram" viewBox="0 0 1160 352" role="img" aria-labelledby="pool-title pool-desc">
+          <title id="pool-title">Router Pool 按用户隔离实例，同一用户多个 Bot 共享其 Router</title>
+          <desc id="pool-desc">用户 U1 的 Web、飞书、微信等十个 Bot 的事件，经 Router Dispatch 按已校验的用户身份发送到 Router U1。Router Pool 内同时管理独立的 Router U2，二者提示词和 Main Session 状态不共享。每个用户内部仍按 Bot 与来源会话装载上下文并定向回复。</desc>
+          <defs><marker id="pool-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/></marker></defs>
+          <rect class="box-gray" x="16" y="24" width="264" height="280" rx="10"/>
+          <text class="t" x="32" y="51">用户 U1 · 10 个 Bot（示例）</text>
+          <rect class="box" x="32" y="82" width="232" height="48" rx="8"/>
+          <text class="m" x="48" y="112">Bot A · Web 对话</text>
+          <rect class="box" x="32" y="144" width="232" height="48" rx="8"/>
+          <text class="m" x="48" y="174">Bot B · 飞书</text>
+          <rect class="box" x="32" y="206" width="232" height="48" rx="8"/>
+          <text class="m" x="48" y="236">Bot C · 微信 / 企业微信</text>
+          <text class="d" x="32" y="282">以及该用户的其他 Bot</text>
+          <path class="edge-new" d="M264,106 H306 V230 H264 M264,168 H306"/>
+          <path class="edge-new" d="M306,168 H336" marker-end="url(#pool-blue)"/>
+          <rect class="box-plat" x="336" y="24" width="220" height="280" rx="10"/>
+          <text class="t c-plat" x="352" y="52">Router Dispatch</text>
+          <text class="d" x="352" y="77">按经校验的 user_id 分派</text>
+          <text class="d" x="352" y="123">同一用户定向到同一实例</text>
+          <text class="d" x="352" y="145">不是随机借用空闲会话</text>
+          <text class="d" x="352" y="221">不生成共享提示词</text>
+          <text class="d" x="352" y="243">不承载用户级推理</text>
+          <rect class="box-gray" x="608" y="24" width="536" height="280" rx="10"/>
+          <text class="t" x="624" y="51">Router Pool · 管理用户级实例</text>
+          <rect class="box-new" x="624" y="84" width="244" height="200" rx="10"/>
+          <text class="t c-new" x="640" y="112">Router U1</text>
+          <text class="d" x="640" y="136">U1 的提示词 / 配置 / Main Session</text>
+          <rect class="box" x="640" y="158" width="212" height="46" rx="8"/>
+          <text class="d" x="656" y="187">按 Bot 与会话装载上下文</text>
+          <rect class="box" x="640" y="218" width="212" height="46" rx="8"/>
+          <text class="d" x="656" y="247">Web / 飞书 / 微信共用实例</text>
+          <rect class="box-new" x="888" y="84" width="240" height="200" rx="10"/>
+          <text class="t c-new" x="904" y="112">Router U2</text>
+          <text class="d" x="904" y="136">U2 的提示词 / 配置 / Main Session</text>
+          <text class="m" x="904" y="186">与 Router U1 状态隔离</text>
+          <text class="d" x="904" y="224">接收用户 U2 的 Bot 事件</text>
+          <text class="d" x="904" y="247">其他用户按相同规则分配</text>
+          <path class="edge-new" d="M556,168 H624" marker-end="url(#pool-blue)"/>
+          <text class="d" x="16" y="334">示例规模：1,000 位用户 × 每人 10 个 Bot = 1,000 个用户 Router、10,000 个 Bot；不是 10,000 个 Router。</text>
+        </svg>
+      </div>
+      <div class="legend" aria-label="图例">
+        <span>Bot 入口集合 / 实例池</span>
+        <span style="--c:var(--plat);--b:var(--plat-bg)">确定性消息分派</span>
+        <span style="--c:var(--new);--b:var(--new-bg)">独立用户 Router / 定向投递</span>
+      </div>
+      <p class="note">规模数字只说明实例归属，不是容量测试或部署承诺。用户级逻辑实例不等于独占进程、线程或模型连接；激活、回收与横向扩容方式留待实现设计。</p>
+    </div>
+    <div class="card">
+      <ul>
+        <li><strong>用户间隔离：</strong>用户 U1 的提示词、协调状态和任务集合不进入用户 U2 的 Router。</li>
+        <li><strong>用户内复用：</strong>同一用户的多个 Bot 共享 Router 的协调能力，但每次处理仍携带 Bot 身份、来源渠道与会话引用，按授权装载会话及记忆。</li>
+        <li><strong>并发而不串话：</strong>Bot A 的模型输出或长任务不占住 Bot B 的输入通道；回复仍返回对应 Bot / 会话，不因共享实例而自动跨 Bot 广播。</li>
+      </ul>
+    </div>
+
+    <h2>七、异步 ReAct 与全双工通信</h2>
+    <div class="card">
+      <p><strong>输入、输出、控制与后台执行可以同时发生。</strong>系统不采用“用户发一条消息，等待整轮模型与工具全部完成，才能处理下一条”的阻塞模式。模型生成过程中可以接收新消息；Job 在后台运行时，Worker 仍可接收进度、取消或更新事件。</p>
+      <div class="tablewrap" tabindex="0" role="region" aria-label="全双工事件类型表，可横向滚动">
+        <table>
+          <thead><tr><th scope="col">事件类别</th><th scope="col">示意事件</th><th scope="col">投递与处理</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">用户输入</th><td><code>user.message</code></td><td>Gateway 规范化后进入 Event Bus，经授权中转送到用户 Router；匹配订阅时也可唤醒既有 Ticket。</td></tr>
+            <tr><th scope="row">模型输出</th><td><code>model.delta</code> / <code>model.message</code></td><td>按输出目标返回对应 Bot / 会话，不要求用户停止输入，也不作为新的用户请求再次触发 Router。</td></tr>
+            <tr><th scope="row">控制指令</th><td><code>control.update</code> / <code>control.cancel</code></td><td>携带明确作用目标，送达相关 Ticket / Worker；取消模型生成与停止某个 Job 是不同作用范围。</td></tr>
+            <tr><th scope="row">后台执行</th><td><code>job.progress</code> / <code>job.completed</code> / <code>job.failed</code> / <code>job.stopped</code></td><td>送达所属 Worker，恢复其后续判断；通过 Ticket 向用户 Router 汇总，而不是直接面向用户发言。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>序列化事件，不是串行等待任务。</strong>Gateway 将渠道消息转换为统一事件结构；必要的会话状态更新可以短暂顺序化，但不能用一个覆盖整段模型生成或 Job 生命周期的锁，阻塞同一用户所有 Bot 的收发与控制。</div>
+      <p class="note">这里的全双工是系统级收发与控制语义，不要求飞书、企业微信等渠道使用同一条双向 Socket；Gateway 适配各渠道的接收与发送能力，具体协议未选型。异步也不意味着模型没有生成延迟。</p>
+    </div>
+    <div class="card">
+      <div class="diagram-scroll" tabindex="0" role="region" aria-label="异步执行、并行对话与中断时序图，可横向滚动">
+        <svg class="diagram" viewBox="0 0 1160 830" role="img" aria-labelledby="async-title async-desc">
+          <title id="async-title">Job 运行时继续对话，并异步停止和替换执行</title>
+          <desc id="async-desc">Bot A 发起任务，用户 Router 创建 Ticket 和 Worker，Worker Start 后台 Job J1 并很快收到受理确认。J1 运行时，用户可在 Bot B 继续对话，同时 Worker 接收进度。用户随后在 Bot A 更新或停止任务，Router 将目标明确的控制送给 Worker，Worker 请求 Stop J1，确认实际状态后按需 Start J2。J2 的完成事件和产物经 Worker、Ticket 回到 Router，再以 Bot A 的身份交付。图中相同行的消息表示可并行发生，不表示等待 Job 完成。</desc>
+          <defs>
+            <marker id="async-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/></marker>
+            <marker id="async-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#047857"/></marker>
+          </defs>
+          <rect class="band" x="16" y="80" width="1128" height="180" rx="10"/>
+          <rect class="band-plat" x="16" y="272" width="1128" height="184" rx="10"/>
+          <rect class="band" x="16" y="470" width="1128" height="342" rx="10"/>
+          <text class="tl" x="32" y="112">启</text><text class="tl" x="32" y="132">动</text>
+          <text class="tl" x="32" y="312">并</text><text class="tl" x="32" y="332">行</text>
+          <text class="tl" x="32" y="514">变</text><text class="tl" x="32" y="534">更</text>
+          <rect class="box-gray" x="60" y="16" width="180" height="42" rx="8"/>
+          <text class="t" x="150" y="42" text-anchor="middle">用户 / Bot A、B</text>
+          <rect class="box-new" x="320" y="16" width="200" height="42" rx="8"/>
+          <text class="t" x="420" y="42" text-anchor="middle">用户 Router U1</text>
+          <rect class="box-new" x="620" y="16" width="200" height="42" rx="8"/>
+          <text class="t" x="720" y="42" text-anchor="middle">Ticket / Worker</text>
+          <rect class="box-plat" x="920" y="16" width="216" height="42" rx="8"/>
+          <text class="t" x="1028" y="42" text-anchor="middle">Job Runtime · J1 / J2</text>
+          <path class="lifeline" d="M150,58 V812 M420,58 V812 M720,58 V812 M1028,58 V812"/>
+
+          <path class="edge-new" d="M150,108 H420" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="285" y="98" text-anchor="middle">① Bot A：开始任务</text>
+          <path class="edge-new" d="M420,148 H720" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="570" y="138" text-anchor="middle">② 创建 Ticket / 派生 Worker</text>
+          <path class="edge-plat" d="M720,188 H1028" marker-end="url(#async-green)"/>
+          <text class="el c-plat" x="874" y="178" text-anchor="middle">③ Start · J1</text>
+          <path class="edge-plat return" d="M1028,228 H720" marker-end="url(#async-green)"/>
+          <text class="el c-plat" x="874" y="218" text-anchor="middle">④ 已受理 · job_id=J1，不是已完成</text>
+
+          <path class="edge-new return" d="M420,300 H150" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="285" y="290" text-anchor="middle">⑤ Bot A：已开始，可继续对话</text>
+          <path class="edge-new" d="M150,344 H420" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="285" y="334" text-anchor="middle">⑥ Bot B：另一条消息</text>
+          <path class="edge-plat return" d="M1028,344 H720" marker-end="url(#async-green)"/>
+          <text class="el c-plat" x="874" y="334" text-anchor="middle">⑦ J1 进度 / Status 快照</text>
+          <path class="edge-new return" d="M420,390 H150" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="285" y="380" text-anchor="middle">⑧ Bot B：回复 / model.delta</text>
+          <path class="edge-new return" d="M720,434 H420" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="570" y="424" text-anchor="middle">⑨ 经 Ticket 汇总进度，不等待 J1 完成</text>
+
+          <path class="edge-new" d="M150,506 H420" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="285" y="496" text-anchor="middle">⑩ Bot A：修改 / 停止任务</text>
+          <path class="edge-new" d="M420,548 H720" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="570" y="538" text-anchor="middle">⑪ 定向更新 / control.cancel</text>
+          <path class="edge-plat" d="M720,590 H1028" marker-end="url(#async-green)"/>
+          <text class="el c-plat" x="874" y="580" text-anchor="middle">⑫ Stop(J1) · 请求停止</text>
+          <path class="edge-plat return" d="M1028,630 H720" marker-end="url(#async-green)"/>
+          <text class="el c-plat" x="874" y="620" text-anchor="middle">⑬ stopped / 已完成，按实际状态确认</text>
+          <path class="edge-plat" d="M720,674 H1028" marker-end="url(#async-green)"/>
+          <text class="el c-plat" x="874" y="664" text-anchor="middle">⑭ 需要重新执行时 Start(J2) · 新参数</text>
+          <path class="edge-plat return" d="M1028,714 H720" marker-end="url(#async-green)"/>
+          <text class="el c-plat" x="874" y="704" text-anchor="middle">⑮ J2 完成事件 / Artifact 引用</text>
+          <path class="edge-new return" d="M720,754 H420" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="570" y="744" text-anchor="middle">⑯ 经 Ticket 汇总产物</text>
+          <path class="edge-new return" d="M420,794 H150" marker-end="url(#async-blue)"/>
+          <text class="el c-new" x="285" y="784" text-anchor="middle">⑰ Bot A：统一交付</text>
+        </svg>
+      </div>
+      <div class="legend" aria-label="图例">
+        <span class="ln" style="--c:var(--new)">对话 / 任务协调 / 定向控制</span>
+        <span class="ln" style="--c:var(--plat)">Job 操作与后台事件</span>
+        <span class="ln return">虚线表示确认、回传或结果；竖虚线为生命线</span>
+      </div>
+      <p class="note">为突出并发关系，图中省略 Gateway、Event Bus 与 Router Dispatch，消息仍通过第二节的传递链路。J1 运行期间的对话无需等它结束；⑭—⑰ 只表示需要替换执行的分支，单纯停止时不启动 J2。</p>
+    </div>
+    <div class="card">
+      <ul>
+        <li><strong>收发解耦：</strong>模型输出尚未结束，也必须能够接收人的新消息和控制事件；后台 Job 不占住 Router 的长回合。</li>
+        <li><strong>事件触发续行：</strong>Worker 提交 Job 后保留关联状态，将后续判断交给进度、完成、失败或控制事件触发；不需要持续阻塞等待，也不依赖高频 Status 轮询维持对话。</li>
+        <li><strong>控制有目标：</strong>自然语言变更由用户 Router 理解，目标明确的控制送达所属 Ticket / Worker。不能因为同一用户在 Bot B 说话，就自动停止 Bot A 的全部 Job。</li>
+        <li><strong>区分输入与输出：</strong>事件类型、来源与目标必须明确；model.delta 和 job.progress 的传递，不等于重新发起用户请求，避免输出回流形成推理循环。</li>
+        <li><strong>合并不丢关键状态：</strong>常规进度可以批量整理，但取消、失败和最终完成事件不能仅作为进度噪声被忽略；具体调度优先级与背压策略尚未定义。</li>
+      </ul>
+    </div>
+
+    <h2>八、Worker、后台 Job 与统一交付</h2>
+    <div class="grid2">
+      <div class="card">
+        <h3>Worker 做判断，Job 做实际执行</h3>
+        <ul>
+          <li>Ticket 持有任务目标、工作上下文与独立工作根目录；Worker 持有独立 Session 和工作子目录，可承载 Sub Agent。</li>
+          <li>Worker 根据任务和事件决定 Start、查询 Status、Stop，或调整参数后重新执行；Job 在后台完成具体操作，不承担对人沟通。</li>
+          <li>一个 Worker 可管理一个或多个 Job，每个 Job 归属明确的 Worker。Job 完成或用户变更到达时，Worker 都能收到相应事件并重新判断。</li>
+          <li>Worker 只汇报已受理、运行中、已停止或已完成等真实状态，不把“发出命令”当成“执行成功”。</li>
+        </ul>
+        <p class="note">目录示意：<code>/bots/{bot_id}/tickets/{ticket_id}/workers/{worker_id}/</code>。Job 的进程、运行位置和输出目录细节尚未选型。</p>
+      </div>
+      <div class="card">
+        <h3>逐级汇总，由用户 Router 对外交付</h3>
+        <ul>
+          <li>Job 进度和完成事件返回所属 Worker；Worker 通过 Ticket 汇报任务级进度、阻塞和 Artifact，不直接向任意渠道发消息。</li>
+          <li>用户 Router 将多个任务的信息整理后，通过 Channel Gateway 以正确 Bot 身份返回指定会话。</li>
+          <li>Bot 长期记忆、Main Session 协调状态、Ticket 工作上下文、Worker 临时上下文与 Job 运行状态分别管理，不默认把执行日志写入长期记忆。</li>
+          <li>不同 Worker 不默认共享对话历史和临时文件；协作使用明确输入、结果引用或 Artifact，权限不得高于所属 Ticket。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <div class="tablewrap" tabindex="0" role="region" aria-label="Job 异步控制操作表，可横向滚动">
+        <table>
+          <caption>概念操作统一记为 Start / Status / Stop；操作名说明职责，不是已冻结的 API。</caption>
+          <thead><tr><th scope="col">操作</th><th scope="col">即时结果</th><th scope="col">后续如何推进</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Start</th><td>提交执行请求，返回受理状态与 <code>job_id</code>；不等待实际工作完成。</td><td>Job 在后台运行，以进度、完成或失败事件通知 Worker；启动失败也必须有明确结果。</td></tr>
+            <tr><th scope="row">Status</th><td>查询指定 Job 的当前状态快照，不等待它达到完成状态。</td><td>用于主动查询、状态核对或恢复后的对账；正常续行主要由事件触发，而非忙等轮询。</td></tr>
+            <tr><th scope="row">Stop</th><td>请求停止指定 Job；已受理不等于已经停止。</td><td>等待停止确认或核对实际终态。若完成与停止并发，以真实状态为准；不能承诺撤销已产生的外部副作用。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>更新任务不等于重用旧结果。</strong>当前用“Stop 旧 Job，再按新参数 Start 新 Job”表达需要重新执行的变更，不额外引入热修改接口。新一次执行具有新的 <code>job_id</code>；旧 Job 的迟到事件保留来源，但不能覆盖新执行的状态或产物。</div>
+      <p class="note">取消与完成存在竞态。Worker 必须跟踪当前执行关联，确认旧 Job 的实际状态；争用同一浏览器、文件或其他资源时，不能在尚未停止旧操作的情况下假定资源已安全释放。强制终止、补偿与重试策略留待后续定义。</p>
+    </div>
+
+    <h2>九、凭据、敏感输入与授权</h2>
+    <div class="grid2">
+      <div class="card">
+        <h3>Vault · 密码箱</h3>
+        <p>凭据由受控的密码箱保存。Router、Ticket 与 Worker 使用凭据引用和授权范围表达需求，不把明文密码或令牌放入模型上下文。</p>
+        <p>实际凭据只在已授权的工具 / Job 执行边界使用。共享浏览器或同一个用户 Router，不意味着所有 Bot、Ticket、Sub Agent 和 Job 自动继承全部凭据使用权。</p>
+      </div>
+      <div class="card">
+        <h3>Security Form · 安全表单</h3>
+        <p>需要敏感信息或授权确认时，通过安全表单完成，而不是要求用户在普通聊天中发送密码。提交结果关联相应 Ticket，以事件恢复后续任务。</p>
+        <p>Router 只需获得“待提交 / 已提交 / 已授权”等状态；等待表单的任务不阻塞其他对话。Ticket 获得获准使用的引用或结果，表单提交不是绕过 Policy 的第二条入口。</p>
+      </div>
+    </div>
+    <div class="card">
+      <ul>
+        <li><strong>入口与路由：</strong>Gateway 校验来源，中转层按经过验证的用户 / Bot 身份进行 Policy 过滤和实例选择；不能直接信任外部载荷中的 <code>user_id</code> 或执行目标。</li>
+        <li><strong>执行与控制：</strong>订阅投递、工具调用、Job 的 Start / Status / Stop 和 Artifact 访问都要校验当前权限；持有 <code>job_id</code> 或其他对象标识本身不是授权。</li>
+        <li><strong>敏感数据：</strong>密码、令牌和安全表单原始敏感输入不进入普通对话、长期记忆、执行日志、Event Bus 的普通事件载荷或 Artifact。</li>
+        <li><strong>审计关联：</strong>保留事件、授权决策、用户 Router、Ticket、Worker、Job 和 Artifact 的关联记录，但不记录敏感输入明文；取消和重启也保留操作来源。</li>
+      </ul>
+      <p class="note">本节定义必须保留的安全边界，不预设密码箱产品、加密密钥体系或表单实现方式。</p>
+    </div>
+
+    <h2>十、逻辑数据关系与后续边界</h2>
+    <div class="card">
+      <div class="tablewrap" tabindex="0" role="region" aria-label="逻辑数据对象表，可横向滚动">
+        <table>
+          <caption>逻辑字段示意：用于区分身份、事件目标与执行归属，不代表已冻结数据库表结构或 API。</caption>
+          <thead><tr><th scope="col">逻辑记录</th><th scope="col">必要标识 / 引用示意</th><th scope="col">关系约束</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Bot</th><td><code>bot_id</code>、<code>user_id</code>、身份 / 记忆 / 屏幕引用</td><td>归属用户；用户内共用 microVM 与 Router，但 Bot 会话和长期记忆分别管理。</td></tr>
+            <tr><th scope="row">Router</th><td><code>router_id</code>、<code>user_id</code>、提示词 / 配置 / 协调状态引用</td><td>每用户一个逻辑实例，由 Router Pool 管理；不同用户的提示词和状态隔离。</td></tr>
+            <tr><th scope="row">Main Session</th><td><code>main_session_id</code>、<code>router_id</code>、Bot / 对话上下文引用</td><td>归属用户 Router；按 Bot 与会话装载上下文，保留各 Bot 的独立身份和回复目标。</td></tr>
+            <tr><th scope="row">Event</th><td><code>event_id</code>、<code>user_id</code>、类型、来源、目标、关联与载荷引用</td><td>区分输入、输出、控制和后台事件；按类型关联 Bot、Thread、Ticket、Worker 或 Job。</td></tr>
+            <tr><th scope="row">Thread</th><td><code>thread_id</code>、用户归属、来源会话 / 连续过程引用</td><td>承载多个连续事件，不等于模型调用、Ticket 或 Job。</td></tr>
+            <tr><th scope="row">Subscription</th><td><code>thread_id</code>、<code>ticket_id</code>、订阅范围与有效状态</td><td>Thread 与 Ticket 多对多；中转层匹配投递时仍校验用户归属与当前授权。</td></tr>
+            <tr><th scope="row">Ticket</th><td><code>ticket_id</code>、<code>router_id</code>、<code>bot_id</code>、Work Session / 目录引用</td><td>由用户 Router 创建，保留任务来源 Bot；独立承载任务上下文，可派生多个 Worker。</td></tr>
+            <tr><th scope="row">Worker</th><td><code>worker_id</code>、<code>ticket_id</code>、Session / 目录 / 当前执行关联</td><td>归属一个 Ticket，可管理多个 Job；通过事件推进判断和控制，不等同于后台进程本身。</td></tr>
+            <tr><th scope="row">Job</th><td><code>job_id</code>、<code>worker_id</code>、运行状态、输入 / 输出 / 控制关联</td><td>归属一个 Worker；重新执行产生新标识，迟到事件不能覆盖新的当前执行。</td></tr>
+            <tr><th scope="row">Artifact</th><td><code>artifact_id</code>、<code>ticket_id</code>、Worker / Job 来源、存储 / 访问控制引用</td><td>可追溯到任务与具体执行；由用户 Router 统一呈现，访问权限仍需单独校验。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">事件中的身份必须来自可信接入或内部运行时，相关对象必须校验归属与授权；并非所有事件都有 thread_id 或 job_id。跨渠道 Thread 归并、事件顺序与投递保证尚未确定，不能把事件“并发可达”写成“全局天然有序”。</p>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h3>本轮固定的架构约束</h3>
+        <ul>
+          <li>一个用户一个 microVM、一个逻辑 Router；同一用户的多个 Bot 共用两者，Bot 身份、会话、记忆与屏幕仍独立。</li>
+          <li>Gateway 将渠道输入规范化为 Events，经 Event Bus 和 Router Dispatch 到达目标用户 Router；Policy 在执行与投递前生效。</li>
+          <li>Router Pool 按用户隔离提示词和状态；不存在一个供所有用户共享上下文的 Router。</li>
+          <li>输入、模型输出、控制与后台事件可并行；不等待整轮 ReAct 或后台 Job 结束才接收新消息。</li>
+          <li>Thread 与 Ticket 多对多订阅；已有订阅可直达任务，对人沟通仍由用户 Router 统一统筹。</li>
+          <li>Ticket 与 Worker 独立会话及目录；Worker 通过 Start / Status / Stop 管理 Job，最终产物称为 Artifact。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>后续逐项设计，不在本轮预设</h3>
+        <ul>
+          <li>Router 实例激活与回收、Main Session 的上下文装载，以及跨用户扩容与调度。</li>
+          <li>Thread 归并、订阅匹配、事件幂等 / 重复 / 乱序处理，以及控制优先级与背压。</li>
+          <li>Ticket / Job 的持久化生命周期、故障恢复、停止超时、失败重试、补偿和资源预算。</li>
+          <li>共享浏览器并发协调、屏幕映射、不可信执行限制，以及长期记忆与凭据的授权机制。</li>
+          <li>数据存储、Event Bus 实现、渠道通信协议、microVM 管理、模型接入与物理部署选型。</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
