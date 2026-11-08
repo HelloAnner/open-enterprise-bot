@@ -39,30 +39,41 @@ function useMessageMutation(botId: string) {
     await queryClient.invalidateQueries({ queryKey: key });
     await queryClient.invalidateQueries({ queryKey: queryKeys.bots });
   };
-  return { begin, fail, finish, key, queryClient };
+  const run = async (message: ChatMessage, request: () => Promise<{ userMessage: ChatMessage; replies: ChatMessage[] }>) => {
+    const context = await begin(message);
+    try {
+      const result = await request();
+      await finish(result, context.optimisticId);
+      return result;
+    } catch (error) {
+      fail(error as Error, context);
+      throw error;
+    }
+  };
+  return { run };
 }
 
 export function useSendMessageMutation(botId: string) {
   const mutation = useMessageMutation(botId);
   return useMutation({
-    mutationFn: (input: { text: string; replyTo?: string }) => chatApi.sendMessage(botId, input),
-    onMutate: (input) => mutation.begin(temporaryMessage({ kind: "text", from: "user", text: input.text, replyTo: input.replyTo })),
-    onSuccess: (result, _, context) => mutation.finish(result, context.optimisticId),
-    onError: (error: Error, _, context) => mutation.fail(error, context),
+    mutationFn: (input: { text: string; replyTo?: string }) => mutation.run(
+      temporaryMessage({ kind: "text", from: "user", text: input.text, replyTo: input.replyTo }),
+      () => chatApi.sendMessage(botId, input),
+    ),
   });
 }
 
 export function useUploadMutation(botId: string) {
   const mutation = useMessageMutation(botId);
   return useMutation({
-    mutationFn: (file: File) => chatApi.uploadFile(botId, file),
-    onMutate: (file) => {
+    mutationFn: (file: File) => {
       const isImage = file.type.startsWith("image/");
       const url = URL.createObjectURL(file);
-      return mutation.begin(temporaryMessage(isImage ? { kind: "image", from: "user", images: [url] } : { kind: "file", from: "user", name: file.name, size: formatBytes(file.size), url }));
+      return mutation.run(
+        temporaryMessage(isImage ? { kind: "image", from: "user", images: [url] } : { kind: "file", from: "user", name: file.name, size: formatBytes(file.size), url }),
+        () => chatApi.uploadFile(botId, file),
+      );
     },
-    onSuccess: (result, _, context) => mutation.finish(result, context.optimisticId),
-    onError: (error: Error, _, context) => mutation.fail(error, context),
   });
 }
 
@@ -71,14 +82,20 @@ export function useChoiceMutation(botId: string) {
   const setTyping = useUiStore((state) => state.setTyping);
   const key = queryKeys.messages(botId);
   return useMutation({
-    mutationFn: (input: { messageId: string; optionIndex: number }) => chatApi.chooseOption(botId, input),
-    onMutate: () => setTyping(botId, true),
-    onSuccess: async (result) => {
-      queryClient.setQueryData<ChatMessage[]>(key, (messages = []) => [...messages.map((message) => message.id === result.choice.id ? result.choice : message), result.userMessage, ...result.replies]);
-      setTyping(botId, false);
-      await queryClient.invalidateQueries({ queryKey: key });
+    mutationFn: async (input: { messageId: string; optionIndex: number }) => {
+      setTyping(botId, true);
+      try {
+        const result = await chatApi.chooseOption(botId, input);
+        queryClient.setQueryData<ChatMessage[]>(key, (messages = []) => [...messages.map((message) => message.id === result.choice.id ? result.choice : message), result.userMessage, ...result.replies]);
+        setTyping(botId, false);
+        await queryClient.invalidateQueries({ queryKey: key });
+        return result;
+      } catch (error) {
+        setTyping(botId, false);
+        toast.error((error as Error).message);
+        throw error;
+      }
     },
-    onError: (error: Error) => { setTyping(botId, false); toast.error(error.message); },
   });
 }
 

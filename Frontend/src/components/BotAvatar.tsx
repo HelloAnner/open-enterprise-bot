@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { motion, useMotionValue, useReducedMotion, useSpring } from "motion/react";
+import { Star } from "lucide-react";
 import type { AvatarShape } from "@/domain/bot/types";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +21,7 @@ const bodies: Record<AvatarShape, ReactNode> = {
   hex: <path d="m23 6 25 9c5 2 8 7 7 12l-5 22c-1 6-6 9-12 8L13 51c-6-1-9-7-8-13L9 15c1-7 7-11 14-9Z" />,
 };
 
-export function BotAvatar({ shape, color, className, active = false }: { shape: AvatarShape; color: string; className?: string; active?: boolean }) {
+export function BotAvatar({ shape, color, className, active = false, processing = false }: { shape: AvatarShape; color: string; className?: string; active?: boolean; processing?: boolean }) {
   const ref = useRef<SVGSVGElement>(null);
   const reduceMotion = useReducedMotion();
   const eyeX = useMotionValue(0);
@@ -49,15 +50,23 @@ export function BotAvatar({ shape, color, className, active = false }: { shape: 
     return () => window.removeEventListener("pointermove", follow);
   }, [active, eyeX, eyeY, reduceMotion, rotation]);
   const blink = reduceMotion ? undefined : { scaleY: [1, 1, 0.08, 1, 1] };
-  return <motion.svg ref={ref} className={cn("bot-avatar", className)} style={{ "--avatar": color } as React.CSSProperties} viewBox="0 0 64 64" role="img" aria-label="Bot 头像" animate={active && !reduceMotion ? { scale: 1.07, y: -2 } : { scale: 1, y: 0 }} transition={{ type: "spring", stiffness: 420, damping: 20 }}>
+  return <motion.svg ref={ref} className={cn("bot-avatar", className)} style={{ "--avatar": color } as React.CSSProperties} viewBox="0 0 64 64" role="img" aria-label={processing ? "Bot 头像，任务处理中" : "Bot 头像"} data-processing={processing} animate={active && !reduceMotion ? { scale: 1.07, y: -2 } : { scale: 1, y: 0 }} transition={{ type: "spring", stiffness: 420, damping: 20 }}>
+    <motion.g data-processing-motion animate={processing && !reduceMotion ? { rotate: [0, -4, 4, -2, 0], y: [0, -1.5, 0, -1, 0] } : { rotate: 0, y: 0 }} transition={processing && !reduceMotion ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 }}>
     <motion.g data-avatar-motion style={{ rotate: smoothRotation }}>
       <g className="avatar-body">{bodies[shape]}</g>
       <g transform={shape === "home" ? undefined : "rotate(-25 34 29)"}>
         <motion.g data-eyes style={{ x: smoothEyeX, y: smoothEyeY }}>
+          <motion.g data-thinking-eyes animate={processing && !reduceMotion ? { x: [-1, 1, -1] } : { x: 0 }} transition={{ duration: 1.4, repeat: processing && !reduceMotion ? Infinity : 0, ease: "easeInOut" }}>
           <motion.rect className="avatar-eye" x="25" y="20" width="6" height="14" rx="3" animate={blink} transition={{ duration: 5.2, times: [0, 0.43, 0.44, 0.45, 1], repeat: Infinity }} />
           <motion.rect className="avatar-eye" x="38" y="20" width="6" height="14" rx="3" animate={blink} transition={{ duration: 5.2, times: [0, 0.43, 0.44, 0.45, 1], repeat: Infinity, delay: 0.04 }} />
+          </motion.g>
         </motion.g>
       </g>
     </motion.g>
+    </motion.g>
+    {processing && <motion.g data-processing-badge aria-hidden="true" initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", stiffness: 420, damping: 20 }}>
+      <circle cx="53" cy="51" r="10" fill="#ff9f1a" stroke="#fff" strokeWidth="2" />
+      <Star x="48.5" y="46.5" width="9" height="9" color="#fff" fill="#fff" strokeWidth={1.5} />
+    </motion.g>}
   </motion.svg>;
 }
