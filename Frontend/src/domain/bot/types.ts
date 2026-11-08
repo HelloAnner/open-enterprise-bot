@@ -19,7 +19,6 @@ export interface Bot {
   accent: string;
   preview: string;
   group: string;
-  hiddenInList?: boolean;
   hidden?: boolean;
   pinned?: boolean;
   unread?: boolean;

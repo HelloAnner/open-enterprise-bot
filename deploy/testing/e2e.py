@@ -4,6 +4,7 @@ The model and KVM node are HTTP fixtures; this does NOT certify a Firecracker bo
 Run: GO=/path/to/go python3 deploy/testing/e2e.py
 """
 import base64, hashlib, hmac, http.server, json, os, pathlib, signal, socket, subprocess, tempfile, threading, time, urllib.request, urllib.error, uuid
+from concurrent.futures import ThreadPoolExecutor
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 GO = os.environ.get('GO', 'go')
@@ -26,7 +27,7 @@ def request(url, data=None, token=None, method=None, headers=None):
     req = urllib.request.Request(url, None if data is None else json.dumps(data).encode(), h, method=method)
     with urllib.request.urlopen(req, timeout=20) as res:
         raw = res.read()
-        return json.loads(raw) if res.headers.get_content_type() == 'application/json' else raw
+        return json.loads(raw) if raw and res.headers.get_content_type() == 'application/json' else raw
 
 def expect_status(code, url, **kwargs):
     try: request(url, **kwargs)
@@ -134,8 +135,22 @@ try:
         start(project,[str(TMP/project)],{**env,'DATABASE_URL':f'postgres://eob_{role}:{TOKEN}@127.0.0.1:{pgport}/eob?sslmode=disable','LISTEN_ADDR':':'+url.rsplit(':',1)[1]})
     for url in [api,cp,desktop]:wait(lambda url=url:request(url+'/readyz'))
     user=sign('local-user');other=sign('other-user')
-    assert request(api+'/api/bots',token=user)==[], 'new accounts must not receive demo Bots'
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        lists=list(pool.map(lambda _:request(api+'/api/bots',token=user),range(8)))
+    assert all(bots==lists[0] and len(bots)==1 for bots in lists), 'starter initialization must be idempotent under concurrency'
+    starter=lists[0][0]
+    assert starter['name']=='Open Bot' and starter['pinned'] is True
+    assert request(api+'/api/conversations/'+starter['id']+'/messages',token=user)==[], 'starter must not contain fabricated history'
+    other_starter=request(api+'/api/bots',token=other)[0]
+    assert other_starter['id']!=starter['id'], 'starter identity must be user-scoped'
+    expect_status(404,api+'/api/conversations/'+starter['id']+'/messages',token=other)
+    changed=request(api+'/api/bots/'+other_starter['id'],{'name':'Renamed','pinned':False,'group':'Custom'},other,method='PATCH')
+    assert request(api+'/api/bots',token=other)==[changed], 'initialization must not reset user edits'
+    request(api+'/api/bots/'+other_starter['id'],token=other,method='DELETE')
+    assert request(api+'/api/bots',token=other)==[], 'a deleted starter must not be resurrected'
     bot=request(api+'/api/bots',{'name':'Assistant','shape':'circle','color':'#111111'},user)['id']
+    assert bot!=starter['id'] and len(request(api+'/api/bots',token=user))==2
+    print('PASS independent starter Bot, concurrent initialization, user isolation and preserved edits/deletion')
     start('guest',[str(TMP/'compute-agent')],{**env,'LISTEN_ADDR':':'+guest_url.rsplit(':',1)[1],'WORKSPACE_ROOT':str(TMP/'guest'),'GUEST_TOKEN':TOKEN,'GUEST_USER_ID':'local-user','GUEST_DESKTOP_ID':str(uuid.uuid5(uuid.NAMESPACE_OID,'desktop/local-user')),'GUEST_EPOCH':'1','GUEST_CALLBACK_URL':node+'/v1/guest-events'})
     runtime_env={**env,'DATABASE_URL':f'postgres://eob_runtime:{TOKEN}@127.0.0.1:{pgport}/eob?sslmode=disable','LISTEN_ADDR':':'+str(port())}
     runtime=start('runtime',['node',str(ROOT/'agent-runtime/dist/main.js')],runtime_env)

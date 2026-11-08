@@ -24,7 +24,7 @@ export const messageSchema = z.object({
 
 export const botSchema = z.object({
   id: z.string(), name: z.string(), shape: avatarShape, color: z.string(), accent: z.string(),
-  preview: z.string(), group: z.string(), hiddenInList: z.boolean().optional(), hidden: z.boolean().optional(),
+  preview: z.string(), group: z.string(), hidden: z.boolean().optional(),
   pinned: z.boolean().optional(), unread: z.boolean().optional(),
 });
 

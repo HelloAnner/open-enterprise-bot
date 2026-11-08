@@ -50,7 +50,7 @@ export function BotAvatar({ shape, color, className, active = false, processing 
     return () => window.removeEventListener("pointermove", follow);
   }, [active, eyeX, eyeY, reduceMotion, rotation]);
   const blink = reduceMotion ? undefined : { scaleY: [1, 1, 0.08, 1, 1] };
-  return <motion.svg ref={ref} className={cn("bot-avatar", className)} style={{ "--avatar": color } as React.CSSProperties} viewBox="0 0 64 64" role="img" aria-label={processing ? "Bot 头像，任务处理中" : "Bot 头像"} data-processing={processing} animate={active && !reduceMotion ? { scale: 1.07, y: -2 } : { scale: 1, y: 0 }} transition={{ type: "spring", stiffness: 420, damping: 20 }}>
+  return <motion.svg ref={ref} className={cn("bot-avatar", className)} style={{ "--avatar": color } as React.CSSProperties} viewBox="0 0 64 64" role="img" aria-label={processing ? "Bot 头像，任务处理中" : "Bot 头像"} data-processing={processing} data-brand={color.toLowerCase() === "#050505"} animate={active && !reduceMotion ? { scale: 1.07, y: -2 } : { scale: 1, y: 0 }} transition={{ type: "spring", stiffness: 420, damping: 20 }}>
     <motion.g data-processing-motion animate={processing && !reduceMotion ? { rotate: [0, -4, 4, -2, 0], y: [0, -1.5, 0, -1, 0] } : { rotate: 0, y: 0 }} transition={processing && !reduceMotion ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 }}>
     <motion.g data-avatar-motion style={{ rotate: smoothRotation }}>
       <g className="avatar-body">{bodies[shape]}</g>

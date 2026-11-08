@@ -13,7 +13,7 @@ export function MoveBotDialog({ bot, onClose }: { bot?: Bot; onClose: () => void
   const [groupName, setGroupName] = useState("");
   useEffect(() => { if (bot) setGroupName(""); }, [bot]);
   if (!bot) return null;
-  const groups = [...new Set(bots.filter((item) => !item.hiddenInList).map((item) => item.group))];
+  const groups = [...new Set(bots.map((item) => item.group))];
   const move = (group: string) => patchBot.mutate({ id: bot.id, patch: { group } }, {
     onSuccess: () => { toast.success(`已移至「${group}」`); onClose(); },
     onError: (error) => toast.error(error.message),

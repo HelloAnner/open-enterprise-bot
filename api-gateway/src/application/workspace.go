@@ -17,7 +17,14 @@ func (s *Service) Own(ctx context.Context, user, bot string) error {
 	return s.DB.QueryRow(ctx, "SELECT true FROM gateway.bots WHERE id=$1 AND user_id=$2 AND NOT deleted", bot, user).Scan(&yes)
 }
 func (s *Service) Bots(ctx context.Context, user string) ([]p.Object, error) {
-	rows, e := s.DB.Query(ctx, "SELECT data FROM gateway.bots WHERE user_id=$1 AND NOT deleted ORDER BY created_at,id", user)
+	// A real, user-owned starter Bot. The stable ID makes concurrent initialization safe;
+	// DO NOTHING preserves renames, unpinning, hiding and soft deletion on later visits.
+	id := p.Stable("open-bot", user)
+	initial := p.Object{"id": id, "name": "Open Bot", "shape": "circle", "color": "#050505", "accent": "#202020", "preview": "", "group": "未分组", "pinned": true}
+	if _, e := s.DB.Exec(ctx, "INSERT INTO gateway.bots(id,user_id,data) VALUES($1,$2,$3) ON CONFLICT (id) DO NOTHING", id, user, p.JSON(initial)); e != nil {
+		return nil, e
+	}
+	rows, e := s.DB.Query(ctx, "SELECT data FROM gateway.bots WHERE user_id=$1 AND NOT deleted ORDER BY (id=$2) DESC,created_at,id", user, id)
 	if e != nil {
 		return nil, e
 	}

@@ -24,9 +24,9 @@ function BotListItem({ bot, onMove, onRename, onDelete, onSelected }: { bot: Bot
   const patchBot = usePatchBotMutation();
   const processing = useUiStore((state) => state.typingBotIds.includes(bot.id));
   const [hovered, setHovered] = useState(false);
-  return <ContextMenu><BotHoverCard bot={bot}><ContextMenuTrigger asChild><button className={cn("bot-item", bot.id === activeBotId && "selected")} onClick={() => { selectBot(bot.id); onSelected(); }} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} onPointerCancel={() => setHovered(false)} onFocus={() => setHovered(true)} onBlur={() => setHovered(false)} aria-label={`打开 ${bot.name}`}>
-    <BotAvatar shape={bot.shape} color={bot.color} active={hovered} processing={processing} />
-    <span className="bot-copy"><span className="bot-name">{bot.name}</span><span className="bot-preview">{bot.preview}</span></span>
+  return <ContextMenu><BotHoverCard bot={bot}><ContextMenuTrigger asChild><button className={cn(bot.pinned ? "pinned-bot" : "bot-item", bot.id === activeBotId && "selected")} onClick={() => { selectBot(bot.id); onSelected(); }} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} onPointerCancel={() => setHovered(false)} onFocus={() => setHovered(true)} onBlur={() => setHovered(false)} aria-label={`打开 ${bot.name}`} aria-current={bot.id === activeBotId ? "page" : undefined}>
+    <span className="bot-avatar-wrap"><BotAvatar shape={bot.shape} color={bot.color} active={hovered} processing={processing} /></span>
+    {bot.pinned ? <span className="pinned-name">{bot.name}</span> : <span className="bot-copy"><span className="bot-name">{bot.name}</span><span className="bot-preview">{bot.preview}</span></span>}
     {bot.unread && <span className="unread-dot" aria-label="未读" />}
   </button></ContextMenuTrigger></BotHoverCard><ContextContent>
     <ContextItem onSelect={() => patchBot.mutate({ id: bot.id, patch: { pinned: !bot.pinned } })}><Pin />{bot.pinned ? "取消置顶" : "置顶"}</ContextItem>
@@ -43,35 +43,35 @@ export function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen: boolean; on
   const botsQuery = useBotsQuery();
   const deleteBot = useDeleteBotMutation();
   const bots = botsQuery.data ?? [];
-  const mossBot = bots.find((bot) => !bot.hidden);
   const session = useSession();
   const patch = usePatchBotMutation();
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const query = useUiStore((state) => state.searchQuery);
   const collapsed = useUiStore((state) => state.collapsedGroups);
-  const mossProcessing = useUiStore((state) => state.typingBotIds.includes(mossBot?.id ?? ""));
   const { selectBot, setSearchQuery, toggleGroup } = useUiStore();
   const [searchOpen, setSearchOpen] = useState(false);
-  const [brandHovered, setBrandHovered] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingBot, setEditingBot] = useState<Bot>();
   const [movingBot, setMovingBot] = useState<Bot>();
   const [deletingBot, setDeletingBot] = useState<Bot>();
-  const visibleBots = bots.filter((bot) => !bot.hiddenInList && !bot.hidden && `${bot.name} ${bot.preview}`.toLowerCase().includes(query.trim().toLowerCase()));
-  const groups = [...new Set(visibleBots.map((bot) => bot.group))].sort((a, b) => a === "未分组" ? 1 : b === "未分组" ? -1 : 0);
-  const sorted = (items: Bot[]) => [...items].sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  const visibleBots = bots.filter((bot) => !bot.hidden && `${bot.name} ${bot.preview}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const pinnedBots = visibleBots.filter((bot) => bot.pinned);
+  const listedBots = visibleBots.filter((bot) => !bot.pinned);
+  const groups = [...new Set(listedBots.map((bot) => bot.group))].sort((a, b) => a === "未分组" ? 1 : b === "未分组" ? -1 : 0);
   const itemProps = (bot: Bot) => ({ bot, onMove: () => setMovingBot(bot), onRename: () => { setEditingBot(bot); setEditorOpen(true); }, onDelete: () => setDeletingBot(bot), onSelected: onMobileClose });
 
   return <>
     <aside className={cn("sidebar", mobileOpen && "open", searchOpen && "search-open")} aria-label="Bot 对话列表">
       <div className="sidebar-actions"><Tooltip label="搜索对话"><Button variant="ghost" size="icon" className="round-button" aria-label="搜索对话" onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearchQuery(""); }}><Search /></Button></Tooltip><Tooltip label="创建新 Bot"><Button variant="ghost" size="icon" className="round-button" aria-label="创建新 Bot" onClick={() => { setEditingBot(undefined); setEditorOpen(true); }}><Plus /></Button></Tooltip></div>
       <AnimatePresence>{searchOpen && <motion.div className="search-panel" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}><Search size={16} /><Input type="search" value={query} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索 Bot" aria-label="搜索 Bot" autoFocus /></motion.div>}</AnimatePresence>
-      <BotHoverCard bot={mossBot}><button className="brand" aria-label="打开工作空间" onClick={() => { if(mossBot) selectBot(mossBot.id); else {setEditingBot(undefined);setEditorOpen(true);} onMobileClose(); }} onPointerEnter={() => setBrandHovered(true)} onPointerLeave={() => setBrandHovered(false)} onFocus={() => setBrandHovered(true)} onBlur={() => setBrandHovered(false)} disabled={botsQuery.isLoading}><span className="brand-avatar"><BotAvatar shape="circle" color="#050505" active={brandHovered} processing={mossProcessing} /></span><span className="brand-name">Open Bot</span></button></BotHoverCard>
-      <nav className="bot-list" aria-busy={botsQuery.isLoading}>{botsQuery.isLoading ? <div className="bot-list-loading">{[1, 2, 3, 4].map((item) => <div className="bot-skeleton" key={item} />)}</div> : botsQuery.isError ? <div className="empty-search"><p>{botsQuery.error.message}</p><Button variant="secondary" size="sm" onClick={() => void botsQuery.refetch()}>重新加载</Button></div> : !visibleBots.length ? <div className="empty-search">没有找到相关 Bot</div> : query ? sorted(visibleBots).map((bot) => <BotListItem key={bot.id} {...itemProps(bot)} />) : groups.map((group) => <section key={group}>
-        <button className="group-title" onClick={() => toggleGroup(group)} aria-expanded={!collapsed.includes(group)}><span>{group}</span><ChevronDown className={cn("group-chevron", collapsed.includes(group) && "collapsed")} /></button>
-        {!collapsed.includes(group) && <div>{sorted(visibleBots.filter((bot) => bot.group === group)).map((bot) => <BotListItem key={bot.id} {...itemProps(bot)} />)}</div>}
-      </section>)}</nav>
+      <nav className="bot-list" aria-busy={botsQuery.isLoading}>{botsQuery.isLoading ? <div className="bot-list-loading">{[1, 2, 3, 4].map((item) => <div className="bot-skeleton" key={item} />)}</div> : botsQuery.isError ? <div className="empty-search"><p>{botsQuery.error.message}</p><Button variant="secondary" size="sm" onClick={() => void botsQuery.refetch()}>重新加载</Button></div> : !visibleBots.length ? <div className="empty-search">没有找到相关 Bot</div> : <>
+        {pinnedBots.length > 0 && <section className="pinned-bots" aria-label="置顶 Bot">{pinnedBots.map((bot) => <BotListItem key={bot.id} {...itemProps(bot)} />)}</section>}
+        {query.trim() ? listedBots.map((bot) => <BotListItem key={bot.id} {...itemProps(bot)} />) : groups.map((group) => <section key={group}>
+          <button className="group-title" onClick={() => toggleGroup(group)} aria-expanded={!collapsed.includes(group)}><span>{group}</span><ChevronDown className={cn("group-chevron", collapsed.includes(group) && "collapsed")} /></button>
+          {!collapsed.includes(group) && <div>{listedBots.filter((bot) => bot.group === group).map((bot) => <BotListItem key={bot.id} {...itemProps(bot)} />)}</div>}
+        </section>)}
+      </>}</nav>
       <div className="sidebar-footer"><Button variant="ghost" className="profile" onClick={() => setProfileOpen(true)}><span className="profile-avatar">{session.data?.name.slice(0,1)}</span><span>{session.data?.name}</span></Button><Tooltip label="全部 Bot"><Button variant="ghost" size="icon" aria-label="全部 Bot" onClick={() => setDirectoryOpen(true)}><LayoutGrid /></Button></Tooltip></div>
     </aside>
     {mobileOpen && <motion.button className="sidebar-scrim" aria-label="关闭对话列表" onClick={onMobileClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} />}
